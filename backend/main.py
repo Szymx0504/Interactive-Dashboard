@@ -1,0 +1,158 @@
+"""
+F1 Analyzer — FastAPI Backend
+Serves OpenF1 data via REST + WebSocket for race replay.
+"""
+
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query
+from fastapi.middleware.cors import CORSMiddleware
+import json
+
+from openf1_client import (
+    get_sessions,
+    get_session,
+    get_drivers,
+    get_laps,
+    get_position,
+    get_car_data,
+    get_pit_stops,
+    get_stints,
+    get_intervals,
+    get_weather,
+    get_location,
+    get_latest_session,
+)
+from ws_manager import replay_manager
+
+app = FastAPI(title="F1 Analyzer API", version="1.0.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# ─── Health ──────────────────────────────────────────────────────────
+
+@app.get("/api/health")
+async def health():
+    return {"status": "ok"}
+
+
+# ─── Sessions ────────────────────────────────────────────────────────
+
+@app.get("/api/sessions")
+async def sessions(year: int | None = None, session_type: str | None = None):
+    return await get_sessions(year, session_type)
+
+
+@app.get("/api/sessions/{session_key}")
+async def session_detail(session_key: int):
+    data = await get_session(session_key)
+    if not data:
+        return {"error": "Session not found"}
+    return data
+
+
+@app.get("/api/sessions/latest")
+async def latest_session():
+    data = await get_latest_session()
+    if not data:
+        return {"error": "No session found"}
+    return data
+
+
+# ─── Drivers ─────────────────────────────────────────────────────────
+
+@app.get("/api/sessions/{session_key}/drivers")
+async def drivers(session_key: int):
+    return await get_drivers(session_key)
+
+
+# ─── Laps ────────────────────────────────────────────────────────────
+
+@app.get("/api/sessions/{session_key}/laps")
+async def laps(session_key: int, driver_number: int | None = None):
+    return await get_laps(session_key, driver_number)
+
+
+# ─── Position ────────────────────────────────────────────────────────
+
+@app.get("/api/sessions/{session_key}/position")
+async def position(session_key: int, driver_number: int | None = None):
+    return await get_position(session_key, driver_number)
+
+
+# ─── Car Data (telemetry) ────────────────────────────────────────────
+
+@app.get("/api/sessions/{session_key}/car_data/{driver_number}")
+async def car_data(session_key: int, driver_number: int):
+    return await get_car_data(session_key, driver_number)
+
+
+# ─── Pit Stops ───────────────────────────────────────────────────────
+
+@app.get("/api/sessions/{session_key}/pit_stops")
+async def pit_stops(session_key: int, driver_number: int | None = None):
+    return await get_pit_stops(session_key, driver_number)
+
+
+# ─── Stints (tires) ─────────────────────────────────────────────────
+
+@app.get("/api/sessions/{session_key}/stints")
+async def stints(session_key: int, driver_number: int | None = None):
+    return await get_stints(session_key, driver_number)
+
+
+# ─── Intervals (gap to leader) ──────────────────────────────────────
+
+@app.get("/api/sessions/{session_key}/intervals")
+async def intervals(session_key: int, driver_number: int | None = None):
+    return await get_intervals(session_key, driver_number)
+
+
+# ─── Weather ─────────────────────────────────────────────────────────
+
+@app.get("/api/sessions/{session_key}/weather")
+async def weather(session_key: int):
+    return await get_weather(session_key)
+
+
+# ─── Location (car positions on track) ──────────────────────────────
+
+@app.get("/api/sessions/{session_key}/location")
+async def location(session_key: int, driver_number: int | None = None):
+    return await get_location(session_key, driver_number)
+
+
+# ─── WebSocket: Race Replay ─────────────────────────────────────────
+
+@app.websocket("/ws/replay/{session_key}")
+async def ws_replay(websocket: WebSocket, session_key: int):
+    await replay_manager.connect(websocket)
+    try:
+        # Wait for client commands
+        while True:
+            data = await websocket.receive_text()
+            msg = json.loads(data)
+            cmd = msg.get("command")
+
+            if cmd == "start":
+                speed = msg.get("speed", 1.0)
+                await replay_manager.start_replay(websocket, session_key, speed)
+            elif cmd == "load_full":
+                await replay_manager.send_full_race_data(websocket, session_key)
+            elif cmd == "ping":
+                await websocket.send_json({"type": "pong"})
+
+    except WebSocketDisconnect:
+        replay_manager.disconnect(websocket)
+    except Exception as e:
+        replay_manager.disconnect(websocket)
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
