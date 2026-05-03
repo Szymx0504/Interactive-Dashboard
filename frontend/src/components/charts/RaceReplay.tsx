@@ -13,7 +13,6 @@ import ReplayControls from "../components/replay/ReplayControls";
 export default function RaceReplay() {
     const [year, setYear] = useState(2024);
     const [sessionKey, setSessionKey] = useState<number | null>(null);
-    const [selectedDriver, setSelectedDriver] = useState<number | null>(null);
     const [currentLap, setCurrentLap] = useState(1);
     const [isPlaying, setIsPlaying] = useState(false);
     const [speed, setSpeed] = useState(1);
@@ -216,27 +215,7 @@ export default function RaceReplay() {
                     ))}
                 </select>
 
-                {uniqueDrivers.length > 0 && (
-                    <select
-                        value={selectedDriver ?? ""}
-                        onChange={(e) =>
-                            setSelectedDriver(
-                                e.target.value ? Number(e.target.value) : null,
-                            )
-                        }
-                        className="bg-f1-card border border-f1-border rounded-lg px-3 py-2 text-sm"
-                    >
-                        <option value="">All Drivers</option>
-                        {sortedDrivers.map((d) => (
-                            <option
-                                key={d.driver_number}
-                                value={d.driver_number}
-                            >
-                                {d.name_acronym} — {d.team_name}
-                            </option>
-                        ))}
-                    </select>
-                )}
+
             </div>
 
             {/* Replay controls */}
@@ -263,7 +242,7 @@ export default function RaceReplay() {
                         laps={lapsUpToCurrent}
                         positions={raceData.positions}
                         drivers={sortedDrivers}
-                        highlightDriver={selectedDriver}
+                        highlightDriver={null}
                         currentLap={currentLap}
                         maxLap={maxLap}
                     />
@@ -271,14 +250,14 @@ export default function RaceReplay() {
                         intervals={currentIntervals}
                         laps={lapsUpToCurrent}
                         drivers={sortedDrivers}
-                        highlightDriver={selectedDriver}
+                        highlightDriver={null}
                         currentLap={currentLap}
                         maxLap={maxLap}
                     />
                     <LapTimesChart
                         laps={lapsUpToCurrent}
                         drivers={sortedDrivers}
-                        highlightDriver={selectedDriver}
+                        highlightDriver={null}
                         currentLap={currentLap}
                         maxLap={maxLap}
                     />
@@ -298,18 +277,9 @@ export default function RaceReplay() {
                     <SpeedTrace
                         sessionKey={sessionKey!}
                         driverNumber={
-                            selectedDriver ??
-                            sortedDrivers[0]?.driver_number ??
-                            null
+                            sortedDrivers[0]?.driver_number ?? null
                         }
-                        driver={
-                            sortedDrivers.find(
-                                (d) =>
-                                    d.driver_number ===
-                                    (selectedDriver ??
-                                        sortedDrivers[0]?.driver_number),
-                            ) ?? null
-                        }
+                        driver={sortedDrivers[0] ?? null}
                     />
                 </div>
             ) : loadingData ? (

@@ -1,72 +1,248 @@
-import { useMemo } from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
-import type { Lap, Driver } from '../../types';
+import { useMemo, useState, useCallback } from "react";
+import {
+    LineChart,
+    Line,
+    XAxis,
+    YAxis,
+    CartesianGrid,
+    Tooltip,
+    ResponsiveContainer,
+} from "recharts";
+import type { Lap, Driver } from "../../types";
 
 interface Props {
-  laps: Lap[];
-  drivers: Driver[];
-  highlightDriver: number | null;
-  currentLap: number;
-  maxLap: number;
+    laps: Lap[];
+    drivers: Driver[];
+    highlightDriver: number | null;
+    currentLap: number;
+    maxLap: number;
 }
 
-export default function LapTimesChart({ laps, drivers, highlightDriver, maxLap }: Props) {
-  const chartData = useMemo(() => {
-    const lapNumbers = [...new Set(laps.map(l => l.lap_number))].sort((a, b) => a - b);
-    return lapNumbers.map(lapNum => {
-      const row: Record<string, number> = { lap: lapNum };
-      laps
-        .filter(l => l.lap_number === lapNum && l.lap_duration !== null)
-        .forEach(l => {
-          const driver = drivers.find(d => d.driver_number === l.driver_number);
-          if (driver && l.lap_duration) {
-            row[driver.name_acronym] = Math.round(l.lap_duration * 1000) / 1000;
-          }
+const TooltipContent = ({ active, payload, label }: any) => {
+    if (!active || !payload || !payload.length) return null;
+    const items = payload
+        .filter((p: any) => p.value != null)
+        .sort((a: any, b: any) => a.value - b.value)
+        .slice(0, 20);
+    if (!items.length) return null;
+    return (
+        <div
+            className="rounded-lg border border-[#4b5563] bg-[#0a0e14] p-3 text-white shadow-2xl"
+            style={{ minWidth: 160 }}
+        >
+            <div className="mb-2 text-[11px] font-semibold uppercase tracking-widest text-gray-400">
+                Lap {label}
+            </div>
+            <div className="space-y-[3px]">
+                {items.map((item: any) => (
+                    <div key={item.dataKey} className="flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-1.5">
+                            <span
+                                className="inline-block h-2 w-2 rounded-full flex-shrink-0"
+                                style={{ backgroundColor: item.stroke }}
+                            />
+                            <span className="text-[11px] font-bold tracking-wide">{item.dataKey}</span>
+                        </div>
+                        <span className="text-[11px] font-mono font-bold" style={{ color: item.stroke }}>
+                            {Number(item.value).toFixed(3)}s
+                        </span>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+};
+
+// ── Team-grouped legend ───────────────────────────────────────────────────────
+
+interface TeamGroup {
+    teamName: string;
+    teamColour: string;
+    drivers: Driver[];
+}
+
+function buildTeamGroups(sortedDrivers: Driver[]): TeamGroup[] {
+    const map = new Map<string, TeamGroup>();
+    for (const driver of sortedDrivers) {
+        const key = driver.team_colour || "ffffff";
+        if (!map.has(key)) {
+            map.set(key, {
+                teamName: (driver as any).team_name ?? key,
+                teamColour: key,
+                drivers: [],
+            });
+        }
+        map.get(key)!.drivers.push(driver);
+    }
+    return Array.from(map.values());
+}
+
+export default function LapTimesChart({
+    laps,
+    drivers,
+    maxLap,
+}: Props) {
+    void maxLap;
+
+    const [focusedDrivers, setFocusedDrivers] = useState<Set<number>>(new Set());
+    const hasFocus = focusedDrivers.size > 0;
+
+    const toggleDriver = useCallback((driverNumber: number) => {
+        setFocusedDrivers((prev) => {
+            const next = new Set(prev);
+            if (next.has(driverNumber)) next.delete(driverNumber);
+            else next.add(driverNumber);
+            return next;
         });
-      return row;
-    });
-  }, [laps, drivers]);
+    }, []);
 
-  // Calculate Y domain (filter out pit laps)
-  const yDomain = useMemo(() => {
-    const times = laps
-      .filter(l => l.lap_duration && !l.is_pit_out_lap && l.lap_duration < 200)
-      .map(l => l.lap_duration!);
-    if (!times.length) return [60, 120];
-    return [Math.floor(Math.min(...times) - 2), Math.ceil(Math.max(...times) + 2)];
-  }, [laps]);
+    const clearFocus = useCallback(() => setFocusedDrivers(new Set()), []);
 
-  return (
-    <div className="bg-f1-card rounded-xl border border-f1-border p-4">
-      <h3 className="text-sm font-semibold mb-3 text-f1-muted uppercase tracking-wide">
-        Lap Times
-      </h3>
-      <ResponsiveContainer width="100%" height={300}>
-        <LineChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-          <XAxis dataKey="lap" stroke="#9ca3af" tick={{ fontSize: 12 }} />
-          <YAxis domain={yDomain} stroke="#9ca3af" tick={{ fontSize: 12 }} tickFormatter={v => `${v}s`} />
-          <Tooltip
-            contentStyle={{ backgroundColor: '#1f2937', border: '1px solid #374151', borderRadius: '8px' }}
-            labelStyle={{ color: '#f9fafb' }}
-            formatter={(value: unknown, name: unknown) => [`${Number(value).toFixed(3)}s`, String(name)]}
-          />
-          <Legend wrapperStyle={{ fontSize: 11 }} />
-          {drivers.map(driver => (
-            <Line
-              key={driver.driver_number}
-              type="monotone"
-              dataKey={driver.name_acronym}
-              stroke={`#${driver.team_colour || 'ffffff'}`}
-              strokeWidth={highlightDriver === driver.driver_number ? 3 : 1}
-              strokeOpacity={highlightDriver && highlightDriver !== driver.driver_number ? 0.2 : 1}
-              dot={false}
-              connectNulls
-              isAnimationActive={false}
-            />
-          ))}
-        </LineChart>
-      </ResponsiveContainer>
-    </div>
-  );
+    const getStyle = (driver: Driver) => {
+        const focused = focusedDrivers.has(driver.driver_number);
+        if (!hasFocus) return { opacity: 1, strokeWidth: 1.5 };
+        return focused ? { opacity: 1, strokeWidth: 3 } : { opacity: 0.07, strokeWidth: 1 };
+    };
+
+    const chartData = useMemo(() => {
+        const lapNumbers = [...new Set(laps.map((l) => l.lap_number))].sort((a, b) => a - b);
+        return lapNumbers.map((lapNum) => {
+            const row: Record<string, number> = { lap: lapNum };
+            laps
+                .filter((l) => l.lap_number === lapNum && l.lap_duration !== null)
+                .forEach((l) => {
+                    const driver = drivers.find((d) => d.driver_number === l.driver_number);
+                    if (driver && l.lap_duration) {
+                        row[driver.name_acronym] = Math.round(l.lap_duration * 1000) / 1000;
+                    }
+                });
+            return row;
+        });
+    }, [laps, drivers]);
+
+    const yDomain = useMemo(() => {
+        const times = laps
+            .filter((l) => l.lap_duration && !l.is_pit_out_lap && l.lap_duration < 200)
+            .map((l) => l.lap_duration!);
+        if (!times.length) return [60, 120];
+        return [Math.floor(Math.min(...times) - 2), Math.ceil(Math.max(...times) + 2)];
+    }, [laps]);
+
+    // Sort by best lap time — determines team group order too
+    const sortedDrivers = useMemo(() => {
+        return [...drivers].sort((a, b) => {
+            const bestA = Math.min(
+                ...laps.filter((l) => l.driver_number === a.driver_number && l.lap_duration && l.lap_duration < 200).map((l) => l.lap_duration!),
+                999,
+            );
+            const bestB = Math.min(
+                ...laps.filter((l) => l.driver_number === b.driver_number && l.lap_duration && l.lap_duration < 200).map((l) => l.lap_duration!),
+                999,
+            );
+            return bestA - bestB;
+        });
+    }, [drivers, laps]);
+
+    const teamGroups = useMemo(() => buildTeamGroups(sortedDrivers), [sortedDrivers]);
+
+    return (
+        <div className="bg-f1-card rounded-xl border border-f1-border p-4">
+            <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-f1-muted uppercase tracking-wide">
+                    Lap Times
+                </h3>
+                {hasFocus && (
+                    <button
+                        onClick={clearFocus}
+                        className="text-[10px] text-f1-muted hover:text-white transition-colors px-2 py-0.5 rounded border border-f1-border hover:border-gray-500"
+                    >
+                        Clear focus
+                    </button>
+                )}
+            </div>
+
+            <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#2d3748" />
+                    <XAxis dataKey="lap" stroke="#6b7280" tick={{ fontSize: 11 }} />
+                    <YAxis
+                        domain={yDomain}
+                        stroke="#6b7280"
+                        tick={{ fontSize: 11 }}
+                        tickFormatter={(v) => `${v}s`}
+                    />
+                    <Tooltip
+                        content={<TooltipContent />}
+                        cursor={{ stroke: "#6b7280", strokeDasharray: "5 5" }}
+                    />
+                    {drivers.map((driver) => {
+                        const color = `#${driver.team_colour || "ffffff"}`;
+                        const style = getStyle(driver);
+                        return (
+                            <Line
+                                key={driver.driver_number}
+                                type="monotone"
+                                dataKey={driver.name_acronym}
+                                stroke={color}
+                                strokeWidth={style.strokeWidth}
+                                strokeOpacity={style.opacity}
+                                dot={false}
+                                activeDot={{ r: 4, fill: color, stroke: "#fff", strokeWidth: 1.5 }}
+                                connectNulls
+                                isAnimationActive={false}
+                            />
+                        );
+                    })}
+                </LineChart>
+            </ResponsiveContainer>
+
+            {/* Team-grouped driver legend */}
+            <div className="mt-3 flex flex-col gap-1.5">
+                {teamGroups.map((group) => {
+                    const teamColor = `#${group.teamColour}`;
+                    return (
+                        <div key={group.teamColour} className="flex items-center gap-2">
+                            {/* Team name */}
+                            <span
+                                className="text-[10px] font-semibold uppercase tracking-wide shrink-0"
+                                style={{ width: 80, color: teamColor, opacity: 0.85 }}
+                            >
+                                {group.teamName}
+                            </span>
+                            {/* Driver buttons */}
+                            <div className="flex gap-1 flex-wrap">
+                                {group.drivers.map((driver) => {
+                                    const color = `#${driver.team_colour || "ffffff"}`;
+                                    const focused = focusedDrivers.has(driver.driver_number);
+                                    const dimmed = hasFocus && !focused;
+                                    return (
+                                        <button
+                                            key={driver.driver_number}
+                                            onClick={() => toggleDriver(driver.driver_number)}
+                                            className="flex items-center gap-1 px-2 py-0.5 rounded font-mono font-bold transition-all"
+                                            style={{
+                                                fontSize: 11,
+                                                border: `1.5px solid ${focused ? color : "#2d3748"}`,
+                                                backgroundColor: focused ? `${color}20` : "transparent",
+                                                color: dimmed ? "#374151" : color,
+                                                opacity: dimmed ? 0.5 : 1,
+                                                transition: "all 0.15s ease",
+                                                cursor: "pointer",
+                                            }}
+                                        >
+                                            <span
+                                                className="inline-block w-1.5 h-1.5 rounded-full flex-shrink-0"
+                                                style={{ backgroundColor: dimmed ? "#374151" : color }}
+                                            />
+                                            {driver.name_acronym}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
 }
