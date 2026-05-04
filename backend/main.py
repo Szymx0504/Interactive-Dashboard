@@ -156,7 +156,7 @@ async def track_map(session_key: int):
         return {"outline": [], "drivers": {}}
 
     driver_numbers = list({d["driver_number"] for d in drivers_list})
-    DRIVER_TARGET = 1500
+    DRIVER_TARGET = 3000
 
     # Fetch all drivers in parallel (semaphore in _fetch handles rate limiting)
     async def fetch_one(dn: int) -> tuple[int, list[dict]]:

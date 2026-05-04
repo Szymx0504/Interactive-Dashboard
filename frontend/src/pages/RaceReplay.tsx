@@ -253,15 +253,36 @@ export default function RaceReplay() {
                         currentLap={currentLap}
                         maxLap={maxLap}
                     />
-                    <TrackMap
+                    <SpeedTrace
                         sessionKey={sessionKey!}
-                        drivers={uniqueDrivers}
-                        laps={raceData.laps}
-                        currentLap={currentLap}
-                        speed={speed}
-                        isPlaying={isPlaying}
-                        highlightDriver={selectedDriver}
+                        driverNumber={
+                            selectedDriver ??
+                            uniqueDrivers[0]?.driver_number ??
+                            null
+                        }
+                        driver={
+                            uniqueDrivers.find(
+                                (d) =>
+                                    d.driver_number ===
+                                    (selectedDriver ??
+                                        uniqueDrivers[0]?.driver_number),
+                            ) ?? null
+                        }
                     />
+                    <div className="lg:col-span-2">
+                        <TrackMap
+                            sessionKey={sessionKey!}
+                            drivers={uniqueDrivers}
+                            laps={raceData.laps}
+                            positions={raceData.positions}
+                            stints={raceData.stints}
+                            intervals={raceData.intervals}
+                            currentLap={currentLap}
+                            speed={speed}
+                            isPlaying={isPlaying}
+                            highlightDriver={selectedDriver}
+                        />
+                    </div>
                     <GapChart
                         intervals={raceData.intervals}
                         laps={raceData.laps}
@@ -289,22 +310,6 @@ export default function RaceReplay() {
                         allWeather={raceData.weather}
                         currentLap={currentLap}
                         maxLap={maxLap}
-                    />
-                    <SpeedTrace
-                        sessionKey={sessionKey!}
-                        driverNumber={
-                            selectedDriver ??
-                            uniqueDrivers[0]?.driver_number ??
-                            null
-                        }
-                        driver={
-                            uniqueDrivers.find(
-                                (d) =>
-                                    d.driver_number ===
-                                    (selectedDriver ??
-                                        uniqueDrivers[0]?.driver_number),
-                            ) ?? null
-                        }
                     />
                 </div>
             ) : loadingData ? (
