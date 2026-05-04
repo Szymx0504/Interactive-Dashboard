@@ -8,6 +8,7 @@ interface Props {
     laps: Lap[];
     currentLap: number;
     speed: number;
+    isPlaying: boolean;
     highlightDriver: number | null;
 }
 
@@ -15,14 +16,16 @@ interface Props {
 
 interface Sample { x: number; y: number; time: number }
 type Bounds = { minX: number; maxX: number; minY: number; maxY: number };
+type Pt = { x: number; y: number };
 
 const W = 500;
 const H = 400;
 const PAD = 30;
+const SNAP_PTS = 200; // outline points used for snap (perf)
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function computeBounds(pts: { x: number; y: number }[]): Bounds {
+function computeBounds(pts: Pt[]): Bounds {
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     for (const p of pts) {
         if (p.x < minX) minX = p.x;
@@ -44,36 +47,30 @@ function toCanvas(x: number, y: number, b: Bounds) {
 }
 
 /** Binary-search + linear interpolation between two surrounding samples */
-function interpolate(samples: Sample[], time: number): { x: number; y: number } | null {
+function interpolate(samples: Sample[], time: number): Pt | null {
     const n = samples.length;
     if (!n) return null;
     if (time <= samples[0].time) return samples[0];
     if (time >= samples[n - 1].time) return samples[n - 1];
-
     let lo = 0, hi = n - 1;
     while (hi - lo > 1) {
         const mid = (lo + hi) >> 1;
-        if (samples[mid].time <= time) lo = mid;
-        else hi = mid;
+        if (samples[mid].time <= time) lo = mid; else hi = mid;
     }
-
     const a = samples[lo], b = samples[hi];
     const t = (time - a.time) / (b.time - a.time || 1);
     return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
 }
 
-/** Project a point onto the nearest segment of the track outline polyline */
-function snapToTrack(
-    pos: { x: number; y: number },
-    outline: { x: number; y: number }[],
-): { x: number; y: number } {
-    let bestD2 = Infinity;
-    let best = pos;
-    for (let i = 0; i < outline.length - 1; i++) {
-        const a = outline[i], b = outline[i + 1];
+/** Project a point onto the nearest segment of a polyline (incl. closing seg) */
+function snapToTrack(pos: Pt, segs: Pt[]): Pt {
+    let bestD2 = Infinity, best = pos;
+    const len = segs.length;
+    for (let i = 0; i < len; i++) {
+        const a = segs[i], b = segs[(i + 1) % len];
         const abx = b.x - a.x, aby = b.y - a.y;
         const len2 = abx * abx + aby * aby;
-        if (len2 === 0) continue;
+        if (len2 < 1) continue;
         const t = Math.max(0, Math.min(1, ((pos.x - a.x) * abx + (pos.y - a.y) * aby) / len2));
         const px = a.x + t * abx, py = a.y + t * aby;
         const dx = pos.x - px, dy = pos.y - py;
@@ -81,6 +78,15 @@ function snapToTrack(
         if (d2 < bestD2) { bestD2 = d2; best = { x: px, y: py }; }
     }
     return best;
+}
+
+/** Downsample an array to ~target points, keeping first & last */
+function downsample(arr: Pt[], target: number): Pt[] {
+    if (arr.length <= target) return arr;
+    const step = (arr.length - 1) / (target - 1);
+    const out: Pt[] = [];
+    for (let i = 0; i < target; i++) out.push(arr[Math.round(i * step)]);
+    return out;
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -91,6 +97,7 @@ export default function TrackMap({
     laps,
     currentLap,
     speed,
+    isPlaying,
     highlightDriver,
 }: Props) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -99,48 +106,46 @@ export default function TrackMap({
     const [error, setError] = useState<string | null>(null);
     const rafRef = useRef(0);
 
-    // Continuous race time — always advances forward, never resets per lap
+    // Accumulation-based timing
     const raceTimeRef = useRef(0);
     const lastTickRef = useRef(0);
-    const animRef = useRef({ target: 0, raceDur: 90_000, lapMs: 1000 });
+    const rateRef = useRef(0); // race-ms per wall-ms
 
     // ── Fetch once per session ───────────────────────────────────────────────
 
     useEffect(() => {
         if (!sessionKey) return;
         let cancelled = false;
-        setLoading(true);
-        setError(null);
-        setTrackData(null);
-
+        setLoading(true); setError(null); setTrackData(null);
         api.getTrackMap(sessionKey)
             .then((d) => { if (!cancelled) setTrackData(d); })
             .catch((e) => { if (!cancelled) setError(e.message ?? "Failed to load"); })
             .finally(() => { if (!cancelled) setLoading(false); });
-
         return () => { cancelled = true; };
     }, [sessionKey]);
 
-    // ── Pre-parse all driver sample timestamps (once when data arrives) ──────
+    // ── Memos ─────────────────────────────────────────────────────────────────
 
     const parsed = useMemo(() => {
         if (!trackData) return new Map<number, Sample[]>();
         const m = new Map<number, Sample[]>();
-        for (const [dn, pts] of Object.entries(trackData.drivers)) {
-            m.set(
-                Number(dn),
-                pts.map((p) => ({ x: p.x, y: p.y, time: new Date(p.date).getTime() })),
-            );
-        }
+        for (const [dn, pts] of Object.entries(trackData.drivers))
+            m.set(Number(dn), pts.map((p) => ({ x: p.x, y: p.y, time: new Date(p.date).getTime() })));
         return m;
     }, [trackData]);
 
     const bounds = useMemo(() => {
-        if (!trackData?.outline.length) return null;
-        return computeBounds(trackData.outline);
-    }, [trackData]);
-
-    // ── Pre-build outline Path2D (avoids rebuilding each frame) ──────────────
+        const allPts: Pt[] = [];
+        if (trackData?.outline.length) allPts.push(...trackData.outline);
+        // Include a few driver samples so bounds work even without outline
+        for (const samples of parsed.values()) {
+            if (samples.length) {
+                allPts.push(samples[0], samples[Math.floor(samples.length / 2)], samples[samples.length - 1]);
+            }
+        }
+        if (!allPts.length) return null;
+        return computeBounds(allPts);
+    }, [trackData, parsed]);
 
     const outlinePath = useMemo(() => {
         if (!trackData?.outline.length || !bounds) return null;
@@ -148,14 +153,17 @@ export default function TrackMap({
         let first = true;
         for (const pt of trackData.outline) {
             const { px, py } = toCanvas(pt.x, pt.y, bounds);
-            if (first) { path.moveTo(px, py); first = false; }
-            else path.lineTo(px, py);
+            if (first) { path.moveTo(px, py); first = false; } else path.lineTo(px, py);
         }
         path.closePath();
         return path;
     }, [trackData, bounds]);
 
-    // ── Compute time range per lap (once when laps data arrives) ─────────────
+    // Downsampled outline for snap lookups (200 pts vs 2000 → 10× cheaper)
+    const snapOutline = useMemo(() => {
+        if (!trackData?.outline.length) return [];
+        return downsample(trackData.outline, SNAP_PTS);
+    }, [trackData]);
 
     const lapRanges = useMemo(() => {
         const starts = new Map<number, number[]>();
@@ -173,57 +181,54 @@ export default function TrackMap({
         return ranges;
     }, [laps]);
 
-    // ── Pre-compute retirement times (detect stationary/crashed drivers) ─────
+    // Average lap duration (for speed → race-time conversion)
+    const avgLapDur = useMemo(() => {
+        if (!lapRanges.size) return 90_000;
+        let sum = 0;
+        for (const r of lapRanges.values()) sum += r.end - r.start;
+        return sum / lapRanges.size;
+    }, [lapRanges]);
 
     const retiredAt = useMemo(() => {
         const map = new Map<number, number>();
         for (const [dn, samples] of parsed) {
             if (samples.length < 10) continue;
-
-            // Find the last sample where the driver was clearly moving
             let lastMovingIdx = 0;
             for (let i = 1; i < samples.length; i++) {
                 const dx = samples[i].x - samples[i - 1].x;
                 const dy = samples[i].y - samples[i - 1].y;
-                if (dx * dx + dy * dy > 2500) lastMovingIdx = i; // > 50m
+                if (dx * dx + dy * dy > 2500) lastMovingIdx = i;
             }
-
-            // If the static tail is > 3 minutes of real race time → retired
             if (samples.length - lastMovingIdx > 10) {
                 const staticMs = samples[samples.length - 1].time - samples[lastMovingIdx].time;
-                if (staticMs > 180_000) {
-                    map.set(dn, samples[lastMovingIdx].time + 5_000);
-                }
+                if (staticMs > 180_000) map.set(dn, samples[lastMovingIdx].time + 5_000);
             }
         }
         return map;
     }, [parsed]);
 
-    // ── Update animation config (ref only — rAF loop never restarts) ─────────
+    // ── Sync race time when currentLap / speed / playing changes ────────────
 
     useEffect(() => {
         const range = lapRanges.get(currentLap);
         if (!range) return;
-        const lapDur = range.end - range.start;
 
-        // Jump only on first load or manual scrub (gap > 5 laps)
+        // Rate: 0 when paused → freezes in place
+        rateRef.current = isPlaying ? avgLapDur * speed / 1000 : 0;
+
+        // Jump only on first load or slider scrub (gap > 2 laps)
         const gap = Math.abs(raceTimeRef.current - range.start);
-        if (raceTimeRef.current === 0 || gap > lapDur * 5) {
+        if (raceTimeRef.current === 0 || gap > avgLapDur * 2) {
             raceTimeRef.current = range.start;
             lastTickRef.current = 0;
         }
+    }, [currentLap, speed, isPlaying, lapRanges, avgLapDur]);
 
-        animRef.current = {
-            target: range.end,
-            raceDur: lapDur,
-            lapMs: Math.max(50, 1000 / speed),
-        };
-    }, [currentLap, speed, lapRanges]);
-
-    // ── Persistent rAF loop — never restarts between laps ────────────────────
+    // ── Persistent rAF loop ──────────────────────────────────────────────────
 
     useEffect(() => {
-        if (!bounds || !outlinePath || !parsed.size || !trackData) return;
+        if (!bounds || !parsed.size) return;
+        const hasSnap = snapOutline.length > 0;
 
         const canvas = canvasRef.current;
         if (!canvas) return;
@@ -236,52 +241,47 @@ export default function TrackMap({
         canvas.style.width = `${W}px`;
         canvas.style.height = `${H}px`;
 
-        const outline = trackData.outline;
+        const snap = snapOutline; // captured for closure
         let running = true;
 
         function tick(now: number) {
             if (!running) return;
 
-            // Advance race time continuously (never resets between laps)
-            const dt = lastTickRef.current ? Math.min(now - lastTickRef.current, 100) : 16;
+            // Advance race time (rate=0 when paused → no advancement)
+            const dt = lastTickRef.current ? Math.min(now - lastTickRef.current, 50) : 16;
             lastTickRef.current = now;
-
-            const { target, raceDur, lapMs } = animRef.current;
-            if (target > 0) {
-                raceTimeRef.current += dt * (raceDur / lapMs);
-            }
-
+            raceTimeRef.current += dt * rateRef.current;
             const raceTime = raceTimeRef.current;
 
             ctx!.setTransform(dpr, 0, 0, dpr, 0, 0);
             ctx!.clearRect(0, 0, W, H);
 
-            // Track outline
-            ctx!.strokeStyle = "#374151";
-            ctx!.lineWidth = 6;
-            ctx!.lineCap = "round";
-            ctx!.lineJoin = "round";
-            ctx!.stroke(outlinePath!);
-            ctx!.strokeStyle = "#4b5563";
-            ctx!.lineWidth = 2;
-            ctx!.stroke(outlinePath!);
+            // Track outline (if available)
+            if (outlinePath) {
+                ctx!.strokeStyle = "#374151";
+                ctx!.lineWidth = 6;
+                ctx!.lineCap = "round";
+                ctx!.lineJoin = "round";
+                ctx!.stroke(outlinePath);
+                ctx!.strokeStyle = "#4b5563";
+                ctx!.lineWidth = 2;
+                ctx!.stroke(outlinePath);
+            }
 
             // Drivers
             for (const drv of drivers) {
                 const samples = parsed.get(drv.driver_number);
                 if (!samples?.length) continue;
 
-                // Hide retired/crashed drivers
                 const retire = retiredAt.get(drv.driver_number);
                 if (retire && raceTime > retire) continue;
-                // Hide if data ended 30+ seconds ago (fallback)
                 if (raceTime > samples[samples.length - 1].time + 30_000) continue;
 
                 const raw = interpolate(samples, raceTime);
                 if (!raw) continue;
 
-                // Snap to nearest track segment so drivers never appear off-track
-                const pos = snapToTrack(raw, outline);
+                // Snap to track if outline available, otherwise use raw position
+                const pos = hasSnap ? snapToTrack(raw, snap) : raw;
 
                 const { px, py } = toCanvas(pos.x, pos.y, bounds!);
                 const col = `#${drv.team_colour || "fff"}`;
@@ -295,12 +295,7 @@ export default function TrackMap({
                 ctx!.fillStyle = col;
                 ctx!.fill();
 
-                if (hl) {
-                    ctx!.strokeStyle = "#fff";
-                    ctx!.lineWidth = 2;
-                    ctx!.stroke();
-                }
-
+                if (hl) { ctx!.strokeStyle = "#fff"; ctx!.lineWidth = 2; ctx!.stroke(); }
                 if (!dim) {
                     ctx!.font = "bold 9px monospace";
                     ctx!.fillStyle = col;
@@ -315,7 +310,7 @@ export default function TrackMap({
 
         rafRef.current = requestAnimationFrame(tick);
         return () => { running = false; cancelAnimationFrame(rafRef.current); };
-    }, [bounds, outlinePath, drivers, parsed, highlightDriver, retiredAt, trackData]);
+    }, [bounds, outlinePath, drivers, parsed, highlightDriver, retiredAt, snapOutline]);
 
     // ── Render ───────────────────────────────────────────────────────────────
 

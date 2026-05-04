@@ -182,17 +182,22 @@ async def track_map(session_key: int):
         if not outline:
             try:
                 dn_laps = await get_laps(session_key, dn)
-                lap_s = next(
-                    (l for l in dn_laps if l.get("lap_number") == 3), None)
-                lap_e = next(
-                    (l for l in dn_laps if l.get("lap_number") == 4), None)
-                if lap_s and lap_e:
-                    t0, t1 = lap_s["date_start"], lap_e["date_start"]
-                    outline = [
-                        {"x": p["x"], "y": p["y"]}
-                        for p in raw
-                        if t0 <= p.get("date", "") <= t1 and p.get("x") is not None
-                    ]
+                # Try several laps in case early ones don't exist
+                for try_lap in [3, 2, 4, 5, 1]:
+                    lap_s = next(
+                        (l for l in dn_laps if l.get("lap_number") == try_lap), None)
+                    lap_e = next(
+                        (l for l in dn_laps if l.get("lap_number") == try_lap + 1), None)
+                    if lap_s and lap_e:
+                        t0, t1 = lap_s["date_start"], lap_e["date_start"]
+                        candidate = [
+                            {"x": p["x"], "y": p["y"]}
+                            for p in raw
+                            if t0 <= p.get("date", "") <= t1 and p.get("x") is not None
+                        ]
+                        if len(candidate) > 20:
+                            outline = candidate
+                            break
             except Exception:
                 pass
             if not outline:

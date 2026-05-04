@@ -259,6 +259,7 @@ export default function RaceReplay() {
                         laps={raceData.laps}
                         currentLap={currentLap}
                         speed={speed}
+                        isPlaying={isPlaying}
                         highlightDriver={selectedDriver}
                     />
                     <GapChart
