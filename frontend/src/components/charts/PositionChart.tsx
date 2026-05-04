@@ -139,7 +139,8 @@ export default function PositionChart({
 
     // ── Build chart data ──────────────────────────────────────────────────────
 
-    const chartData = useMemo(() => {
+    // Expensive: computed once when race data loads (all deps stable during replay)
+    const fullChartData = useMemo(() => {
         const positionsByDriver = new Map<number, Position[]>();
         positions.forEach((pos) => {
             const list = positionsByDriver.get(pos.driver_number) ?? [];
@@ -176,6 +177,12 @@ export default function PositionChart({
             return row;
         });
     }, [laps, positions, drivers]);
+
+    // Cheap: only a filter per lap tick
+    const chartData = useMemo(
+        () => fullChartData.filter(row => (row.lap as number) <= currentLap),
+        [fullChartData, currentLap],
+    );
 
     // ── Edge positions for side labels ────────────────────────────────────────
 

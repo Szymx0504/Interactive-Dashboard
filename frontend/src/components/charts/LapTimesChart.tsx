@@ -81,6 +81,7 @@ function buildTeamGroups(sortedDrivers: Driver[]): TeamGroup[] {
 export default function LapTimesChart({
     laps,
     drivers,
+    currentLap,
     maxLap,
 }: Props) {
     void maxLap;
@@ -105,7 +106,8 @@ export default function LapTimesChart({
         return focused ? { opacity: 1, strokeWidth: 3 } : { opacity: 0.07, strokeWidth: 1 };
     };
 
-    const chartData = useMemo(() => {
+    // Expensive: computed once when race data loads
+    const fullChartData = useMemo(() => {
         const lapNumbers = [...new Set(laps.map((l) => l.lap_number))].sort((a, b) => a - b);
         return lapNumbers.map((lapNum) => {
             const row: Record<string, number> = { lap: lapNum };
@@ -120,6 +122,12 @@ export default function LapTimesChart({
             return row;
         });
     }, [laps, drivers]);
+
+    // Cheap slice per tick
+    const chartData = useMemo(
+        () => fullChartData.filter(row => (row.lap as number) <= currentLap),
+        [fullChartData, currentLap],
+    );
 
     const yDomain = useMemo(() => {
         const times = laps

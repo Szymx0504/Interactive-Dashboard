@@ -112,13 +112,24 @@ export default function GapChart({
         return focused ? { opacity: 1, strokeWidth: 3 } : { opacity: 0.07, strokeWidth: 1 };
     };
 
-    const chartData = useMemo(() => {
+    // Pre-index intervals by driver with pre-parsed timestamps (computed once)
+    const intervalsByDriver = useMemo(() => {
+        const map = new Map<number, { interval: Interval; time: number }[]>();
+        intervals.forEach((i) => {
+            const list = map.get(i.driver_number) ?? [];
+            list.push({ interval: i, time: new Date(i.date).getTime() });
+            map.set(i.driver_number, list);
+        });
+        return map;
+    }, [intervals]);
+
+    // Expensive: computed once when race data loads (all deps stable during replay)
+    const fullChartData = useMemo(() => {
         if (!intervals.length || !laps.length) return [];
 
         const lapNumbers = [...new Set(laps.map((l) => l.lap_number))].sort((a, b) => a - b);
-        const filteredLapNumbers = lapNumbers.filter((l) => l <= currentLap);
 
-        return filteredLapNumbers.map((lapNum) => {
+        return lapNumbers.map((lapNum) => {
             const row: Record<string, number | string> = { lap: lapNum };
             const lapEntries = laps.filter((l) => l.lap_number === lapNum);
 
@@ -126,13 +137,17 @@ export default function GapChart({
                 const lapEntry = lapEntries.find((l) => l.driver_number === driver.driver_number);
                 if (!lapEntry?.date_start) return;
 
-                const driverIntervals = intervals.filter((i) => i.driver_number === driver.driver_number);
-                const closest = driverIntervals.reduce<Interval | null>((best, curr) => {
-                    if (!best) return curr;
-                    const bestDiff = Math.abs(new Date(best.date).getTime() - new Date(lapEntry.date_start).getTime());
-                    const currDiff = Math.abs(new Date(curr.date).getTime() - new Date(lapEntry.date_start).getTime());
-                    return currDiff < bestDiff ? curr : best;
-                }, null);
+                const driverIntervals = intervalsByDriver.get(driver.driver_number) ?? [];
+                const lapTime = new Date(lapEntry.date_start).getTime();
+                let closest: Interval | null = null;
+                let bestDiff = Infinity;
+                for (const entry of driverIntervals) {
+                    const diff = Math.abs(entry.time - lapTime);
+                    if (diff < bestDiff) {
+                        bestDiff = diff;
+                        closest = entry.interval;
+                    }
+                }
 
                 if (closest?.gap_to_leader != null && typeof closest.gap_to_leader === "number") {
                     row[driver.name_acronym] = Math.round(closest.gap_to_leader * 1000) / 1000;
@@ -141,7 +156,13 @@ export default function GapChart({
 
             return row;
         });
-    }, [intervals, laps, drivers, currentLap]);
+    }, [intervals, laps, drivers, intervalsByDriver]);
+
+    // Cheap slice per tick
+    const chartData = useMemo(
+        () => fullChartData.filter(row => (row.lap as number) <= currentLap),
+        [fullChartData, currentLap],
+    );
 
     // Sort legend by current gap (ascending) — this also determines team group order
     const sortedDrivers = useMemo(() => {

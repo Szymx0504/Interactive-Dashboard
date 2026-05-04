@@ -111,6 +111,11 @@ export interface LocationPoint {
   date: string;
 }
 
+export interface TrackMapData {
+  outline: { x: number; y: number }[];
+  drivers: Record<string, { x: number; y: number; date: string }[]>;
+}
+
 // Replay
 export interface LapFrame {
   type: 'lap_frame';

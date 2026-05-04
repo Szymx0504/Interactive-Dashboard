@@ -1,4 +1,4 @@
-import type { Session, Driver, Lap, Position, CarData, PitStop, Stint, Interval, Weather, LocationPoint } from '../types';
+import type { Session, Driver, Lap, Position, CarData, PitStop, Stint, Interval, Weather, LocationPoint, TrackMapData } from '../types';
 
 const BASE = '/api';
 
@@ -68,4 +68,8 @@ export const api = {
     const qs = driverNumber ? `?driver_number=${driverNumber}` : '';
     return fetchJson<LocationPoint[]>(`/sessions/${sessionKey}/location${qs}`);
   },
+
+  // Track map (downsampled locations for all drivers + outline)
+  getTrackMap: (sessionKey: number) =>
+    fetchJson<TrackMapData>(`/sessions/${sessionKey}/track_map`),
 };

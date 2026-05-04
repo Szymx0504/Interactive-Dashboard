@@ -8,6 +8,7 @@ import GapChart from "../components/charts/GapChart";
 import TireStrategy from "../components/charts/TireStrategy";
 import WeatherPanel from "../components/charts/WeatherPanel";
 import SpeedTrace from "../components/charts/SpeedTrace";
+import TrackMap from "../components/charts/TrackMap";
 import ReplayControls from "../components/replay/ReplayControls";
 
 export default function RaceReplay() {
@@ -81,9 +82,9 @@ export default function RaceReplay() {
         return Math.max(...raceData.laps.map((l) => l.lap_number ?? 0), 0);
     }, [raceData]);
 
-    // Playback timer
+    // Playback timer — no currentLap in deps so the interval is never recreated mid-race
     useEffect(() => {
-        if (!isPlaying || !raceData || currentLap >= maxLap) return;
+        if (!isPlaying || !raceData) return;
         const interval = setInterval(
             () => {
                 setCurrentLap((prev) => {
@@ -97,30 +98,15 @@ export default function RaceReplay() {
             Math.max(50, 1000 / speed),
         );
         return () => clearInterval(interval);
-    }, [isPlaying, speed, maxLap, raceData, currentLap]);
+    }, [isPlaying, speed, maxLap, raceData]);
 
     // Filter data up to current lap for charts
-    const lapsUpToCurrent = useMemo(
-        () => raceData?.laps.filter((l) => l.lap_number <= currentLap) ?? [],
-        [raceData, currentLap],
-    );
-
-    const currentStints = useMemo(
-        () => raceData?.stints.filter((s) => s.lap_start <= currentLap) ?? [],
-        [raceData, currentLap],
-    );
-
     const currentWeather = useMemo(() => {
         if (!raceData?.weather.length) return null;
         return raceData.weather[
             Math.min(currentLap - 1, raceData.weather.length - 1)
         ];
     }, [raceData, currentLap]);
-
-    const currentIntervals = useMemo(
-        () => raceData?.intervals ?? [],
-        [raceData],
-    );
 
     const currentPositions = useMemo(() => {
         if (!raceData) return new Map<number, number>();
@@ -260,32 +246,40 @@ export default function RaceReplay() {
             {raceData ? (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     <PositionChart
-                        laps={lapsUpToCurrent}
+                        laps={raceData.laps}
                         positions={raceData.positions}
-                        drivers={sortedDrivers}
+                        drivers={uniqueDrivers}
                         highlightDriver={selectedDriver}
                         currentLap={currentLap}
                         maxLap={maxLap}
                     />
+                    <TrackMap
+                        sessionKey={sessionKey!}
+                        drivers={uniqueDrivers}
+                        laps={raceData.laps}
+                        currentLap={currentLap}
+                        speed={speed}
+                        highlightDriver={selectedDriver}
+                    />
                     <GapChart
-                        intervals={currentIntervals}
-                        laps={lapsUpToCurrent}
-                        drivers={sortedDrivers}
+                        intervals={raceData.intervals}
+                        laps={raceData.laps}
+                        drivers={uniqueDrivers}
                         highlightDriver={selectedDriver}
                         currentLap={currentLap}
                         maxLap={maxLap}
                     />
                     <LapTimesChart
-                        laps={lapsUpToCurrent}
-                        drivers={sortedDrivers}
+                        laps={raceData.laps}
+                        drivers={uniqueDrivers}
                         highlightDriver={selectedDriver}
                         currentLap={currentLap}
                         maxLap={maxLap}
                     />
                     <TireStrategy
-                        stints={currentStints}
-                        drivers={sortedDrivers}
-                        laps={lapsUpToCurrent}
+                        stints={raceData.stints}
+                        drivers={uniqueDrivers}
+                        laps={raceData.laps}
                         maxLap={maxLap}
                         currentLap={currentLap}
                     />
@@ -299,15 +293,15 @@ export default function RaceReplay() {
                         sessionKey={sessionKey!}
                         driverNumber={
                             selectedDriver ??
-                            sortedDrivers[0]?.driver_number ??
+                            uniqueDrivers[0]?.driver_number ??
                             null
                         }
                         driver={
-                            sortedDrivers.find(
+                            uniqueDrivers.find(
                                 (d) =>
                                     d.driver_number ===
                                     (selectedDriver ??
-                                        sortedDrivers[0]?.driver_number),
+                                        uniqueDrivers[0]?.driver_number),
                             ) ?? null
                         }
                     />

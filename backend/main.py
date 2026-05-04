@@ -6,6 +6,7 @@ Serves OpenF1 data via REST + WebSocket for race replay.
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+import asyncio
 import httpx
 import json
 
@@ -141,6 +142,76 @@ async def weather(session_key: int):
 @app.get("/api/sessions/{session_key}/location")
 async def location(session_key: int, driver_number: int | None = None):
     return await get_location(session_key, driver_number)
+
+
+@app.get("/api/sessions/{session_key}/track_map")
+async def track_map(session_key: int):
+    """Return downsampled location data for every driver.
+
+    Fetches all drivers in parallel (semaphore limits concurrency).
+    Returns {outline: [{x,y},...], drivers: {driver_number: [{x,y,date},...]}}.
+    """
+    drivers_list = await get_drivers(session_key)
+    if not drivers_list:
+        return {"outline": [], "drivers": {}}
+
+    driver_numbers = list({d["driver_number"] for d in drivers_list})
+    DRIVER_TARGET = 1500
+
+    # Fetch all drivers in parallel (semaphore in _fetch handles rate limiting)
+    async def fetch_one(dn: int) -> tuple[int, list[dict]]:
+        try:
+            raw = await get_location(session_key, dn)
+            return dn, raw or []
+        except Exception:
+            return dn, []
+
+    results = await asyncio.gather(*(fetch_one(dn) for dn in driver_numbers))
+
+    # Process results
+    outline: list[dict] = []
+    drivers_data: dict[int, list[dict]] = {}
+
+    for dn, raw in results:
+        if not raw:
+            continue
+
+        raw.sort(key=lambda p: p.get("date", ""))
+
+        # First driver with data → extract one full-res lap for a clean outline
+        if not outline:
+            try:
+                dn_laps = await get_laps(session_key, dn)
+                lap_s = next(
+                    (l for l in dn_laps if l.get("lap_number") == 3), None)
+                lap_e = next(
+                    (l for l in dn_laps if l.get("lap_number") == 4), None)
+                if lap_s and lap_e:
+                    t0, t1 = lap_s["date_start"], lap_e["date_start"]
+                    outline = [
+                        {"x": p["x"], "y": p["y"]}
+                        for p in raw
+                        if t0 <= p.get("date", "") <= t1 and p.get("x") is not None
+                    ]
+            except Exception:
+                pass
+            if not outline:
+                step = max(1, len(raw) // 2000)
+                outline = [
+                    {"x": p["x"], "y": p["y"]}
+                    for p in raw[::step]
+                    if p.get("x") is not None
+                ]
+
+        # Downsample for driver tracking
+        step = max(1, len(raw) // DRIVER_TARGET)
+        drivers_data[dn] = [
+            {"x": p["x"], "y": p["y"], "date": p["date"]}
+            for p in raw[::step]
+            if p.get("x") is not None
+        ]
+
+    return {"outline": outline, "drivers": drivers_data}
 
 
 # ─── WebSocket: Race Replay ─────────────────────────────────────────

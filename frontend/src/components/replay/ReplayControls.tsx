@@ -11,7 +11,7 @@ interface Props {
   onReset: () => void;
 }
 
-const SPEEDS = [0.5, 1, 2, 5, 10];
+const SPEEDS = [0.25, 0.5, 1, 2, 5, 10];
 
 export default function ReplayControls({
   currentLap, maxLap, isPlaying, speed,
