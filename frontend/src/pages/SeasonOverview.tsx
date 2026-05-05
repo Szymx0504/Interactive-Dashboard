@@ -3,7 +3,6 @@ import { api } from "../lib/api";
 import { useApi } from "../hooks/useApi";
 import type {
     Driver,
-    Position,
     SessionResultRow,
     DriverChampionshipEntry,
     ConstructorChampionshipEntry,
@@ -82,10 +81,6 @@ export default function SeasonOverview() {
         [selectedSessionKey],
     );
 
-    const [allPositions, setAllPositions] = useState<Map<number, Position[]>>(
-        new Map(),
-    );
-    const [allDrivers, setAllDrivers] = useState<Driver[]>([]);
     const { data: driverChampionship, loading: driverChampionshipLoading } =
         useApi<DriverChampionshipEntry[]>(
             () =>
@@ -104,43 +99,6 @@ export default function SeasonOverview() {
                 : Promise.resolve([]),
         [selectedSessionKey],
     );
-
-    useEffect(() => {
-        if (!raceSessions?.length || !selectedSessionKey) return;
-        const today = new Date().toISOString();
-        const idx = raceSessions.findIndex(
-            (s) => s.session_key === selectedSessionKey,
-        );
-        const targetRaces = raceSessions
-            .slice(0, idx + 1)
-            .filter((s) => s.date_start <= today);
-
-        let cancelled = false;
-        const posMap = new Map<number, Position[]>();
-        const driverSet = new Map<number, Driver>();
-
-        Promise.all(
-            targetRaces.map(async (race) => {
-                const [pos, drv] = await Promise.all([
-                    api.getPosition(race.session_key),
-                    api.getDrivers(race.session_key),
-                ]);
-                posMap.set(race.session_key, pos ?? []);
-                (drv ?? []).forEach((d: Driver) => {
-                    if (!driverSet.has(d.driver_number))
-                        driverSet.set(d.driver_number, d);
-                });
-            }),
-        ).then(() => {
-            if (cancelled) return;
-            setAllPositions(new Map(posMap));
-            setAllDrivers(Array.from(driverSet.values()));
-        });
-
-        return () => {
-            cancelled = true;
-        };
-    }, [raceSessions, selectedSessionKey]);
 
     const selectedSession = raceSessions?.find(
         (s) => s.session_key === selectedSessionKey,
@@ -237,7 +195,7 @@ export default function SeasonOverview() {
                             ) : driverChampionship?.length ? (
                                 <DriverChampionshipTable
                                     standings={driverChampionship}
-                                    allDrivers={allDrivers}
+                                    allDrivers={selectedDrivers ?? []}
                                 />
                             ) : (
                                 <p className="text-f1-muted text-sm">
@@ -256,7 +214,7 @@ export default function SeasonOverview() {
                             ) : constructorChampionship?.length ? (
                                 <ConstructorChampionshipTable
                                     standings={constructorChampionship}
-                                    allDrivers={allDrivers}
+                                    allDrivers={selectedDrivers ?? []}
                                 />
                             ) : (
                                 <p className="text-f1-muted text-sm">
@@ -270,18 +228,10 @@ export default function SeasonOverview() {
                         title={`Season Results Grid — ${year}`}
                         className="overflow-x-auto"
                     >
-                        {allDrivers.length && allPositions.size ? (
-                            <SeasonGrid
-                                raceSessions={raceSessions ?? []}
-                                allPositions={allPositions}
-                                allDrivers={allDrivers}
-                                selectedSessionKey={selectedSessionKey}
-                            />
-                        ) : (
-                            <p className="text-f1-muted text-sm">
-                                Loading race data…
-                            </p>
-                        )}
+                        <SeasonGrid
+                            year={year}
+                            selectedSessionKey={selectedSessionKey}
+                        />
                     </Card>
                 </>
             )}

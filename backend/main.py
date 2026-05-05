@@ -85,6 +85,60 @@ async def latest_session():
     return data
 
 
+# ─── Season Results (bulk) ───────────────────────────────────────────
+
+@app.get("/api/season/{year}/results")
+async def season_results(year: int):
+    """
+    Return finishing positions for every Race session in a year in one call.
+    Uses session_result (one compact row per driver) instead of /position
+    (thousands of timestamped rows). Fetches in small sequential chunks to
+    avoid hammering OpenF1 with 24 simultaneous requests.
+
+    Response:
+    {
+      "sessions": [{ session_key, session_name, country_name, circuit_short_name, date_start, year }],
+      "results":  { "<session_key>": [{ driver_number, position, name_acronym, team_name, team_colour }] }
+    }
+    """
+    all_sessions = await get_sessions(year=year, session_type="Race")
+    if not all_sessions:
+        return {"sessions": [], "results": {}}
+
+    async def fetch_result(s: dict) -> tuple[int, list[dict]]:
+        try:
+            data = await get_session_result(s["session_key"])
+            return s["session_key"], data or []
+        except Exception:
+            return s["session_key"], []
+
+    # Fetch in chunks of 3 with a small pause between chunks so we don't
+    # saturate the semaphore and trigger cascading 429s.
+    CHUNK = 3
+    pairs: list[tuple[int, list[dict]]] = []
+    for i in range(0, len(all_sessions), CHUNK):
+        chunk = all_sessions[i : i + CHUNK]
+        chunk_results = await asyncio.gather(*(fetch_result(s) for s in chunk))
+        pairs.extend(chunk_results)
+        if i + CHUNK < len(all_sessions):
+            await asyncio.sleep(0.5)
+
+    return {
+        "sessions": [
+            {
+                "session_key": s["session_key"],
+                "session_name": s.get("session_name", "Race"),
+                "country_name": s.get("country_name", ""),
+                "circuit_short_name": s.get("circuit_short_name", ""),
+                "date_start": s.get("date_start", ""),
+                "year": s.get("year", year),
+            }
+            for s in all_sessions
+        ],
+        "results": {str(sk): data for sk, data in pairs},
+    }
+
+
 # ─── Drivers ─────────────────────────────────────────────────────────
 
 @app.get("/api/sessions/{session_key}/drivers")
