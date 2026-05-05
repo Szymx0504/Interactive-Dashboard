@@ -1,11 +1,27 @@
 import type { Session, Driver, Lap, Position, CarData, PitStop, Stint, Interval, Weather, LocationPoint, TrackMapData, RaceControlMessage } from '../types';
+import type {
+    Session,
+    Driver,
+    Lap,
+    Position,
+    SessionResultRow,
+    CarData,
+    PitStop,
+    Stint,
+    Interval,
+    Weather,
+    LocationPoint,
+    TrackMapData,
+    DriverChampionshipEntry,
+    ConstructorChampionshipEntry,
+} from "../types";
 
-const BASE = '/api';
+const BASE = "/api";
 
 async function fetchJson<T>(url: string): Promise<T> {
-  const res = await fetch(`${BASE}${url}`);
-  if (!res.ok) throw new Error(`API error: ${res.status} ${res.statusText}`);
-  return res.json();
+    const res = await fetch(`${BASE}${url}`);
+    if (!res.ok) throw new Error(`API error: ${res.status} ${res.statusText}`);
+    return res.json();
 }
 
 export const api = {
