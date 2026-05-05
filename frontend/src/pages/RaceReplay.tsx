@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { api } from "../lib/api";
 import { useApi } from "../hooks/useApi";
 import type { FullRaceData, Position, Lap } from "../types";
@@ -82,23 +82,14 @@ export default function RaceReplay() {
         return Math.max(...raceData.laps.map((l) => l.lap_number ?? 0), 0);
     }, [raceData]);
 
-    // Playback timer — no currentLap in deps so the interval is never recreated mid-race
-    useEffect(() => {
-        if (!isPlaying || !raceData) return;
-        const interval = setInterval(
-            () => {
-                setCurrentLap((prev) => {
-                    if (prev >= maxLap) {
-                        setIsPlaying(false);
-                        return prev;
-                    }
-                    return prev + 1;
-                });
-            },
-            Math.max(50, 1000 / speed),
-        );
-        return () => clearInterval(interval);
-    }, [isPlaying, speed, maxLap, raceData]);
+    // Lap changes are driven by TrackMap animation via onLapChange callback
+    const handleLapChange = useCallback((lap: number) => {
+        setCurrentLap(lap);
+    }, []);
+
+    const handleFinish = useCallback(() => {
+        setIsPlaying(false);
+    }, []);
 
     // Filter data up to current lap for charts
     const currentWeather = useMemo(() => {
@@ -278,9 +269,12 @@ export default function RaceReplay() {
                             stints={raceData.stints}
                             intervals={raceData.intervals}
                             currentLap={currentLap}
+                            maxLap={maxLap}
                             speed={speed}
                             isPlaying={isPlaying}
                             highlightDriver={selectedDriver}
+                            onLapChange={handleLapChange}
+                            onFinish={handleFinish}
                         />
                     </div>
                     <GapChart
