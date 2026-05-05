@@ -102,6 +102,17 @@ export interface Weather {
   date: string;
 }
 
+export interface RaceControlMessage {
+  date: string;
+  session_key: number;
+  category: string;
+  flag?: string;
+  message: string;
+  scope?: string;
+  driver_number?: number;
+  lap_number?: number;
+}
+
 export interface LocationPoint {
   session_key: number;
   driver_number: number;
@@ -135,6 +146,7 @@ export interface FullRaceData {
   stints: Stint[];
   weather: Weather[];
   intervals: Interval[];
+  raceControl: RaceControlMessage[];
 }
 
 export interface SessionInfo {

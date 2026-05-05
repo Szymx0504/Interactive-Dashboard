@@ -1,4 +1,4 @@
-import type { Session, Driver, Lap, Position, CarData, PitStop, Stint, Interval, Weather, LocationPoint, TrackMapData } from '../types';
+import type { Session, Driver, Lap, Position, CarData, PitStop, Stint, Interval, Weather, LocationPoint, TrackMapData, RaceControlMessage } from '../types';
 
 const BASE = '/api';
 
@@ -68,6 +68,10 @@ export const api = {
     const qs = driverNumber ? `?driver_number=${driverNumber}` : '';
     return fetchJson<LocationPoint[]>(`/sessions/${sessionKey}/location${qs}`);
   },
+
+  // Race Control (flags, safety cars)
+  getRaceControl: (sessionKey: number) =>
+    fetchJson<RaceControlMessage[]>(`/sessions/${sessionKey}/race_control`),
 
   // Track map (downsampled locations for all drivers + outline)
   getTrackMap: (sessionKey: number) =>
