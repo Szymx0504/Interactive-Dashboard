@@ -99,28 +99,37 @@ export default function RaceEventsFeed({
       }
     }
 
-    // ── Rain detection from weather data ──
+    // ── Rain detection from weather data (one event per lap, debounced) ──
     const sortedLaps = [...laps].sort((a, b) => a.date_start.localeCompare(b.date_start));
     const lapDates = new Map<number, string>();
     for (const l of sortedLaps) {
       if (!lapDates.has(l.lap_number)) lapDates.set(l.lap_number, l.date_start);
     }
     const sortedWeather = [...weather].sort((a, b) => a.date.localeCompare(b.date));
-    let wasRaining = false;
+    // Determine rain state per lap (majority vote)
+    const rainByLap = new Map<number, { rain: number; dry: number }>();
     for (const w of sortedWeather) {
-      const raining = w.rainfall > 0;
+      let closestLap = 1;
+      for (const [lapNum, date] of lapDates) {
+        if (date <= w.date) closestLap = lapNum;
+      }
+      const entry = rainByLap.get(closestLap) ?? { rain: 0, dry: 0 };
+      if (w.rainfall > 0) entry.rain++; else entry.dry++;
+      rainByLap.set(closestLap, entry);
+    }
+    let wasRaining = false;
+    const lapNums = [...lapDates.keys()].sort((a, b) => a - b);
+    for (const lapNum of lapNums) {
+      const counts = rainByLap.get(lapNum);
+      if (!counts) continue;
+      const raining = counts.rain > counts.dry;
       if (raining !== wasRaining) {
-        // Find closest lap
-        let closestLap = 1;
-        for (const [lapNum, date] of lapDates) {
-          if (date <= w.date) closestLap = lapNum;
-        }
         result.push({
-          lap: closestLap,
+          lap: lapNum,
           type: "rain",
           driverNumber: null,
           description: raining ? "Rain starts" : "Rain stops",
-          detail: `Lap ${closestLap}`,
+          detail: `Lap ${lapNum}`,
         });
         wasRaining = raining;
       }
@@ -159,7 +168,11 @@ export default function RaceEventsFeed({
         description = msg.includes("ENDING")
           ? "VSC ending"
           : "Virtual Safety Car";
-      } else if (flag === "YELLOW" || msg.includes("YELLOW")) {
+      } else if (
+        (flag === "YELLOW" || msg.includes("YELLOW")) &&
+        !msg.includes("SECTOR") &&
+        !msg.includes("TRACK SECTOR")
+      ) {
         type = "yellow_flag";
         description = rc.message;
       } else if (flag === "BLACK AND WHITE" || flag === "BLACK") {
@@ -198,7 +211,17 @@ export default function RaceEventsFeed({
     }
 
     result.sort((a, b) => b.lap - a.lap || a.type.localeCompare(b.type));
-    return result;
+
+    // Deduplicate: keep only one event per (lap, type, description) combo
+    const seen = new Set<string>();
+    const deduped = result.filter((ev) => {
+      const key = `${ev.lap}_${ev.type}_${ev.description}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    return deduped;
   }, [laps, weather, raceControl, driverMap]);
 
   // Filter to events at or before current lap
