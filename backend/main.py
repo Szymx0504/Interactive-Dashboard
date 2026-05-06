@@ -124,6 +124,48 @@ async def season_results(year: int):
         if i + CHUNK < len(all_sessions):
             await asyncio.sleep(0.5)
 
+    # Build a driver-info cache keyed by driver_number so we can enrich result
+    # rows with full_name / name_acronym (session_result doesn't include them).
+    # Fetch drivers only for sessions that have results, in chunks.
+    sessions_with_results = [s for s in all_sessions
+                              if any(sk == s["session_key"] for sk, data in pairs if data)]
+    driver_cache: dict[int, dict] = {}
+
+    async def fetch_drivers_for_session(s: dict) -> list[dict]:
+        try:
+            return await get_drivers(s["session_key"])
+        except Exception:
+            return []
+
+    for i in range(0, len(sessions_with_results), CHUNK):
+        chunk = sessions_with_results[i : i + CHUNK]
+        driver_lists = await asyncio.gather(*(fetch_drivers_for_session(s) for s in chunk))
+        for drivers_list in driver_lists:
+            for d in drivers_list:
+                dn = d.get("driver_number")
+                if dn and dn not in driver_cache:
+                    driver_cache[dn] = d
+        if i + CHUNK < len(sessions_with_results):
+            await asyncio.sleep(0.3)
+
+    # Enrich each result row with driver name fields
+    enriched_results: dict[str, list[dict]] = {}
+    for sk, rows in pairs:
+        enriched_rows = []
+        for row in rows:
+            dn = row.get("driver_number")
+            driver = driver_cache.get(dn, {})
+            enriched_rows.append({
+                **row,
+                "full_name": row.get("full_name") or driver.get("full_name"),
+                "name_acronym": row.get("name_acronym") or driver.get("name_acronym"),
+                "broadcast_name": row.get("broadcast_name") or driver.get("broadcast_name"),
+                # team_name / team_colour already come from session_result; keep them
+                "team_name": row.get("team_name") or driver.get("team_name"),
+                "team_colour": row.get("team_colour") or driver.get("team_colour"),
+            })
+        enriched_results[str(sk)] = enriched_rows
+
     return {
         "sessions": [
             {
@@ -136,7 +178,7 @@ async def season_results(year: int):
             }
             for s in all_sessions
         ],
-        "results": {str(sk): data for sk, data in pairs},
+        "results": enriched_results,
     }
 
 
@@ -184,6 +226,52 @@ async def driver_championship(
             entry["team_name"] = driver.get("team_name")
             entry["team_colour"] = driver.get("team_colour")
     return standings
+
+
+@app.get("/api/championship/drivers/by-year")
+async def driver_championship_by_year(year: int, after_session_key: int | None = None):
+    """
+    Look up driver championship standings for a given year.
+    Finds the most recent completed race up to after_session_key (or the last
+    race of the year) and queries the championship endpoint with that session.
+    """
+    all_sessions = await get_sessions(year=year, session_type="Race")
+    if not all_sessions:
+        return []
+
+    today = __import__("datetime").datetime.utcnow().isoformat()
+    past = [s for s in all_sessions if s.get("date_start", "") <= today]
+    if not past:
+        return []
+
+    if after_session_key:
+        candidates = [s for s in past if s["session_key"] <= after_session_key]
+        target_session = candidates[-1] if candidates else past[-1]
+    else:
+        target_session = past[-1]
+
+    return await driver_championship(target_session["session_key"])
+
+
+@app.get("/api/championship/teams/by-year")
+async def constructor_championship_by_year(year: int, after_session_key: int | None = None):
+    """Same as above but for constructors."""
+    all_sessions = await get_sessions(year=year, session_type="Race")
+    if not all_sessions:
+        return []
+
+    today = __import__("datetime").datetime.utcnow().isoformat()
+    past = [s for s in all_sessions if s.get("date_start", "") <= today]
+    if not past:
+        return []
+
+    if after_session_key:
+        candidates = [s for s in past if s["session_key"] <= after_session_key]
+        target_session = candidates[-1] if candidates else past[-1]
+    else:
+        target_session = past[-1]
+
+    return await constructor_championship(target_session["session_key"])
 
 
 @app.get("/api/championship/teams")

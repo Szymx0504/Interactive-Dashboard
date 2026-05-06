@@ -85,9 +85,9 @@ export default function SeasonOverview() {
         useApi<DriverChampionshipEntry[]>(
             () =>
                 selectedSessionKey
-                    ? api.getDriverChampionship(selectedSessionKey)
+                    ? api.getDriverChampionshipByYear(year, selectedSessionKey)
                     : Promise.resolve([]),
-            [selectedSessionKey],
+            [year, selectedSessionKey],
         );
     const {
         data: constructorChampionship,
@@ -95,9 +95,9 @@ export default function SeasonOverview() {
     } = useApi<ConstructorChampionshipEntry[]>(
         () =>
             selectedSessionKey
-                ? api.getConstructorChampionship(selectedSessionKey)
+                ? api.getConstructorChampionshipByYear(year, selectedSessionKey)
                 : Promise.resolve([]),
-        [selectedSessionKey],
+        [year, selectedSessionKey],
     );
 
     const selectedSession = raceSessions?.find(
