@@ -11,24 +11,18 @@ interface Session {
 
 interface RaceResult {
     driver_number: number;
-    position: number | null;
-    classified_status?: string; // "Finished" | "DNF" | "WDDNF" | "DNS" | "DSQ" | ...
+    position: number;
+    classified_position?: string | number; // "1"–"20", "DNF", "DNS", "DSQ", "NC", "EX", etc.
     full_name?: string;
     name_acronym?: string;
     team_name?: string;
     team_colour?: string;
 }
 
-interface ChampionshipEntry {
-    driver_number: number;
-    points_current?: number;
-    points_start?: number;
-    full_name?: string;
-    name_acronym?: string;
-    broadcast_name?: string;
-    team_name?: string;
-    team_colour?: string;
-}
+// null  → driver didn't participate at all that weekend (blank cell)
+// "DNF" | "DNS" | "DSQ" | "NC" → participated but didn't finish / was excluded
+// number → classified finishing position
+type RaceSlot = number | "DNF" | "DNS" | "DSQ" | "NC" | null;
 
 interface GridEntry {
     driverNumber: number;
@@ -36,10 +30,7 @@ interface GridEntry {
     acronym: string;
     teamName: string;
     color: string;
-    // null  = wasn't an F1 driver / didn't participate at all
-    // "DNF" | "DNS" | "DSQ" = classified status for non-finishers
-    // number = finishing position
-    positions: (number | "DNF" | "DNS" | "DSQ" | null)[];
+    slots: RaceSlot[];
     totalPoints: number;
 }
 
@@ -47,53 +38,100 @@ interface SeasonGridProps {
     year: number;
     selectedSessionKey: number;
     apiBase?: string;
+    /** driver_number → championship points (from driver championship endpoint).
+     *  If provided these replace the locally-calculated points totals. */
+    championshipPoints?: Record<number, number>;
 }
+
+const POINTS_MAP: Record<number, number> = {
+    1: 25, 2: 18, 3: 15, 4: 12, 5: 10,
+    6: 8,  7: 6,  8: 4,  9: 2,  10: 1,
+};
+const pts = (slot: RaceSlot): number =>
+    typeof slot === "number" ? (POINTS_MAP[slot] ?? 0) : 0;
 
 const MEDAL: Record<number, string> = { 1: "#ffd700", 2: "#c0c0c0", 3: "#cd7f32" };
 
-function cellBg(pos: GridEntry["positions"][number]): string {
-    if (pos === null)    return "transparent";
-    if (pos === "DNF")   return "rgba(239,68,68,0.12)";
-    if (pos === "DNS")   return "rgba(156,163,175,0.10)";
-    if (pos === "DSQ")   return "rgba(168,85,247,0.12)";
-    if (pos === 1)       return "rgba(255,215,0,0.15)";
-    if (pos === 2)       return "rgba(192,192,192,0.12)";
-    if (pos === 3)       return "rgba(205,127,50,0.12)";
-    if (pos <= 10)       return "rgba(34,197,94,0.08)";
-    return "rgba(255,255,255,0.03)";
+/** Parse API data into a typed RaceSlot. */
+function parseSlot(r: RaceResult): RaceSlot {
+    // Prefer classified_position when present
+    if (r.classified_position !== undefined && r.classified_position !== null && r.classified_position !== "") {
+        const cpStr = String(r.classified_position).toUpperCase().trim();
+        const num = Number(cpStr);
+        if (!isNaN(num) && num >= 1 && num <= 20) return num;
+        // Normalise known retirement codes
+        if (cpStr === "DNF" || cpStr === "RET" || cpStr === "RETIRED") return "DNF";
+        if (cpStr === "DNS" || cpStr === "WD") return "DNS";
+        if (cpStr === "DSQ" || cpStr === "DQ" || cpStr === "EX") return "DSQ";
+        if (cpStr === "NC") return "NC";
+    }
+    // Fall back to numeric position field
+    if (r.position >= 1 && r.position <= 20) return r.position;
+    // Driver is in the results list but couldn't be classified → DNF
+    return "DNF";
 }
 
-function cellColor(pos: GridEntry["positions"][number]): string {
-    if (pos === null)    return "transparent";
-    if (pos === "DNF")   return "#f87171";
-    if (pos === "DNS")   return "#9ca3af";
-    if (pos === "DSQ")   return "#c084fc";
-    if (pos <= 3)        return MEDAL[pos];
-    if (pos <= 10)       return "#86efac";
-    return "#6b7280";
+function cellBg(slot: RaceSlot): string {
+    if (slot === null) return "transparent";
+    if (typeof slot === "number") {
+        if (slot === 1) return "rgba(255,215,0,0.15)";
+        if (slot === 2) return "rgba(192,192,192,0.12)";
+        if (slot === 3) return "rgba(205,127,50,0.12)";
+        if (slot <= 10) return "rgba(34,197,94,0.08)";
+        return "rgba(255,255,255,0.03)";
+    }
+    // Status codes
+    if (slot === "DSQ") return "rgba(239,68,68,0.12)";
+    return "rgba(255,255,255,0.04)"; // DNF / DNS / NC
 }
 
-function cellLabel(pos: GridEntry["positions"][number]): string {
-    if (pos === null)  return "";
-    if (pos === "DNF") return "DNF";
-    if (pos === "DNS") return "DNS";
-    if (pos === "DSQ") return "DSQ";
-    return String(pos);
+function cellColor(slot: RaceSlot): string {
+    if (slot === null) return "transparent";
+    if (typeof slot === "number") {
+        if (slot <= 3) return MEDAL[slot];
+        if (slot <= 10) return "#86efac";
+        return "#6b7280";
+    }
+    if (slot === "DSQ") return "#f87171";
+    return "#6b7280"; // DNF / DNS / NC
 }
 
-/** Normalise the raw classified_status string from OpenF1 into a display value. */
-function resolveStatus(row: RaceResult): number | "DNF" | "DNS" | "DSQ" {
-    const status = (row.classified_status ?? "").toUpperCase();
-    if (status === "DNS") return "DNS";
-    if (status === "DSQ" || status === "DISQUALIFIED") return "DSQ";
-    // WDDNF = Withdrew/Did Not Finish, treat as DNF
-    if (status === "DNF" || status === "WDDNF" || status === "RETIRED") return "DNF";
-    // "Finished" or a numeric position — use the position field
-    const pos = row.position;
-    if (pos !== null && pos !== undefined && pos >= 1) return pos;
-    // Fallback: if status is present but unrecognised, show DNF
-    if (status && status !== "FINISHED") return "DNF";
-    return pos ?? "DNF";
+function cellLabel(slot: RaceSlot): string {
+    if (slot === null) return "";
+    if (typeof slot === "number") return String(slot);
+    return slot; // "DNF", "DNS", "DSQ", "NC"
+}
+
+function cellTitle(slot: RaceSlot): string {
+    if (slot === null) return "Did not participate";
+    if (typeof slot === "number") return `P${slot} — ${pts(slot)} pts`;
+    const labels: Record<string, string> = {
+        DNF: "Did Not Finish",
+        DNS: "Did Not Start",
+        DSQ: "Disqualified",
+        NC: "Not Classified",
+    };
+    return labels[slot] ?? slot;
+}
+
+type State =
+    | { status: "idle" }
+    | { status: "loading" }
+    | { status: "done"; sessions: Session[]; results: Record<string, RaceResult[]> }
+    | { status: "error"; message: string };
+
+type Action =
+    | { type: "fetch_start" }
+    | { type: "data"; sessions: Session[]; results: Record<string, RaceResult[]> }
+    | { type: "error"; message: string };
+
+function reducer(_state: State, action: Action): State {
+    switch (action.type) {
+        case "fetch_start": return { status: "loading" };
+        case "data":        return { status: "done", sessions: action.sessions, results: action.results };
+        case "error":       return { status: "error", message: action.message };
+        default:            return _state;
+    }
 }
 
 function getSurname(fullName?: string): string | null {
@@ -102,36 +140,12 @@ function getSurname(fullName?: string): string | null {
     return parts[parts.length - 1] || null;
 }
 
-// ─── State machine ───────────────────────────────────────────────────
-
-interface SeasonData {
-    sessions: Session[];
-    results: Record<string, RaceResult[]>;
-}
-
-type State =
-    | { status: "idle" }
-    | { status: "loading" }
-    | { status: "done"; data: SeasonData; championship: ChampionshipEntry[] }
-    | { status: "error"; message: string };
-
-type Action =
-    | { type: "fetch_start" }
-    | { type: "data"; data: SeasonData; championship: ChampionshipEntry[] }
-    | { type: "error"; message: string };
-
-function reducer(_state: State, action: Action): State {
-    switch (action.type) {
-        case "fetch_start": return { status: "loading" };
-        case "data":        return { status: "done", data: action.data, championship: action.championship };
-        case "error":       return { status: "error", message: action.message };
-        default:            return _state;
-    }
-}
-
-// ─── Component ───────────────────────────────────────────────────────
-
-export default function SeasonGrid({ year, selectedSessionKey, apiBase = "/api" }: SeasonGridProps) {
+export default function SeasonGrid({
+    year,
+    selectedSessionKey,
+    apiBase = "/api",
+    championshipPoints,
+}: SeasonGridProps) {
     const [state, dispatch] = useReducer(reducer, { status: "idle" });
     const abortRef = useRef<AbortController | null>(null);
 
@@ -142,123 +156,68 @@ export default function SeasonGrid({ year, selectedSessionKey, apiBase = "/api" 
         abortRef.current = ctrl;
         dispatch({ type: "fetch_start" });
 
-        const seasonUrl      = `${apiBase}/season/${year}/results`;
-        const champUrl       = `${apiBase}/championship/drivers/by-year?year=${year}` +
-                               (selectedSessionKey ? `&after_session_key=${selectedSessionKey}` : "");
-
-        Promise.all([
-            fetch(seasonUrl, { signal: ctrl.signal }).then((r) => {
-                if (!r.ok) throw new Error(`HTTP ${r.status}`);
-                return r.json() as Promise<SeasonData>;
-            }),
-            fetch(champUrl, { signal: ctrl.signal }).then((r) => {
-                if (!r.ok) return [] as ChampionshipEntry[];
-                return r.json() as Promise<ChampionshipEntry[]>;
-            }),
-        ])
-            .then(([data, championship]) => {
+        fetch(`${apiBase}/season/${year}/results`, { signal: ctrl.signal })
+            .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+            .then((json) => {
                 if (ctrl.signal.aborted) return;
-                dispatch({ type: "data", data, championship: championship ?? [] });
+                dispatch({ type: "data", sessions: json.sessions ?? [], results: json.results ?? {} });
             })
-            .catch((err) => {
-                if (err.name !== "AbortError") dispatch({ type: "error", message: err.message });
-            });
+            .catch((err) => { if (err.name !== "AbortError") dispatch({ type: "error", message: err.message }); });
 
         return () => ctrl.abort();
-    }, [year, selectedSessionKey, apiBase]);
+    }, [year, apiBase]);
 
-    // Sessions visible up to the selected one
     const visibleSessions = useMemo(() => {
         if (state.status !== "done") return [];
-        const idx = state.data.sessions.findIndex((s) => s.session_key === selectedSessionKey);
-        return idx >= 0 ? state.data.sessions.slice(0, idx + 1) : state.data.sessions;
+        const idx = state.sessions.findIndex((s) => s.session_key === selectedSessionKey);
+        return idx >= 0 ? state.sessions.slice(0, idx + 1) : state.sessions;
     }, [state, selectedSessionKey]);
 
-    // Championship lookup: driver_number → points_current
-    const champPoints = useMemo(() => {
-        if (state.status !== "done") return new Map<number, number>();
-        return new Map(
-            state.championship.map((e) => [
-                Number(e.driver_number),
-                e.points_current ?? e.points_start ?? 0,
-            ]),
-        );
-    }, [state]);
-
-    // Build the grid rows
     const driverGrid = useMemo((): GridEntry[] => {
         if (state.status !== "done") return [];
 
-        // Collect every driver_number that appears in ANY visible race
-        // so we can show blank cells (not DNF) for races before they joined F1.
-        const driverFirstRace = new Map<number, number>(); // driver_number → first raceIdx they appear
-
-        visibleSessions.forEach((session, raceIdx) => {
-            const results: RaceResult[] = state.data.results[String(session.session_key)] ?? [];
-            results.forEach((r) => {
-                if (!driverFirstRace.has(r.driver_number)) {
-                    driverFirstRace.set(r.driver_number, raceIdx);
-                }
-            });
-        });
-
         const driverMap = new Map<number, GridEntry>();
 
-        // Initialise every known driver with all-null positions
-        driverFirstRace.forEach((firstRace, driverNumber) => {
-            driverMap.set(driverNumber, {
-                driverNumber,
-                surname:     String(driverNumber),
-                acronym:     String(driverNumber),
-                teamName:    "",
-                color:       "#ffffff",
-                positions:   Array(visibleSessions.length).fill(null) as (number | "DNF" | "DNS" | "DSQ" | null)[],
-                totalPoints: 0,
-            });
-        });
-
-        // Fill in results per race
         visibleSessions.forEach((session, raceIdx) => {
-            const results: RaceResult[] = state.data.results[String(session.session_key)] ?? [];
-
-            // Build a set of driver numbers that PARTICIPATED (i.e. are in the result list)
-            // regardless of whether they finished.
-            const participatedSet = new Set(results.map((r) => r.driver_number));
-
+            const results: RaceResult[] = state.results[String(session.session_key)] ?? [];
             results.forEach((r) => {
-                const entry = driverMap.get(r.driver_number);
-                if (!entry) return;
-
-                const resolvedPos = resolveStatus(r);
-                entry.positions[raceIdx] = resolvedPos;
-
-                // Update identity info from the latest available data
-                if (r.team_colour) entry.color    = `#${r.team_colour}`;
-                if (r.team_name)   entry.teamName = r.team_name;
-                if (r.full_name) {
-                    entry.surname = getSurname(r.full_name) ?? entry.surname;
+                if (!driverMap.has(r.driver_number)) {
+                    driverMap.set(r.driver_number, {
+                        driverNumber: r.driver_number,
+                        surname:  getSurname(r.full_name) ?? r.name_acronym ?? String(r.driver_number),
+                        acronym:  r.name_acronym ?? String(r.driver_number),
+                        teamName: r.team_name ?? "",
+                        color:    `#${r.team_colour || "ffffff"}`,
+                        // All slots start as null (= didn't participate / blank)
+                        slots: Array(visibleSessions.length).fill(null),
+                        totalPoints: 0,
+                    });
                 }
-                if (r.name_acronym) entry.acronym = r.name_acronym;
+                const entry = driverMap.get(r.driver_number)!;
+                const slot = parseSlot(r);
+                entry.slots[raceIdx] = slot;
+                entry.totalPoints += pts(slot);
+                if (r.team_colour)  entry.color    = `#${r.team_colour}`;
+                if (r.team_name)    entry.teamName = r.team_name;
+                if (r.full_name)    entry.surname  = getSurname(r.full_name) ?? entry.surname;
+                if (r.name_acronym) entry.acronym  = r.name_acronym;
             });
-
-            // Drivers who exist in our map but are NOT in this race's result set:
-            // if they appeared in a PREVIOUS race they were presumably still on the grid
-            // but didn't participate (DNF before start, or late withdrawal) — leave null
-            // so the cell stays blank. We never infer a status we don't have.
-            // (The null-initialisation above already handles this correctly.)
         });
 
-        // Apply championship points (or fall back to 0 if not in standings)
-        driverMap.forEach((entry) => {
-            entry.totalPoints = champPoints.get(entry.driverNumber) ?? 0;
-        });
+        const drivers = Array.from(driverMap.values()).filter((d) =>
+            d.slots.some((s) => s !== null),
+        );
 
-        return Array.from(driverMap.values())
-            .filter((d) => d.positions.some((p) => p !== null))
-            .sort((a, b) => b.totalPoints - a.totalPoints);
-    }, [state, visibleSessions, champPoints]);
+        // Apply official championship points when provided by the parent,
+        // otherwise keep the locally-calculated totals (position points only).
+        if (championshipPoints) {
+            drivers.forEach((d) => {
+                d.totalPoints = championshipPoints[d.driverNumber] ?? d.totalPoints;
+            });
+        }
 
-    // ─── Render ──────────────────────────────────────────────────────
+        return drivers.sort((a, b) => b.totalPoints - a.totalPoints);
+    }, [state, visibleSessions, championshipPoints]);
 
     if (state.status === "idle" || state.status === "loading") {
         return (
@@ -330,26 +289,22 @@ export default function SeasonGrid({ year, selectedSessionKey, apiBase = "/api" 
                                     #{driver.driverNumber} {driver.surname}
                                 </span>
                             </td>
-                            {driver.positions.map((pos, raceIdx) => (
+                            {driver.slots.map((slot, raceIdx) => (
                                 <td
                                     key={raceIdx}
                                     className="py-1 px-0 text-center"
-                                    title={
-                                        pos === null   ? "Did not participate" :
-                                        pos === "DNF"  ? "Did Not Finish" :
-                                        pos === "DNS"  ? "Did Not Start" :
-                                        pos === "DSQ"  ? "Disqualified" :
-                                        `P${pos}`
-                                    }
+                                    title={cellTitle(slot)}
                                 >
                                     <span
-                                        className="inline-flex items-center justify-center w-7 h-6 rounded text-[10px] font-bold"
+                                        className="inline-flex items-center justify-center w-7 h-6 rounded font-bold"
                                         style={{
-                                            backgroundColor: cellBg(pos),
-                                            color: cellColor(pos),
+                                            backgroundColor: cellBg(slot),
+                                            color: cellColor(slot),
+                                            // Status codes need smaller text to fit
+                                            fontSize: typeof slot === "string" ? "8px" : "10px",
                                         }}
                                     >
-                                        {cellLabel(pos)}
+                                        {cellLabel(slot)}
                                     </span>
                                 </td>
                             ))}

@@ -11,6 +11,7 @@ import RaceResultTable from "../components/charts/RaceResultTable";
 import DriverChampionshipTable from "../components/charts/DriverChampionshipTable";
 import ConstructorChampionshipTable from "../components/charts/ConstructorChampionshipTable";
 import SeasonGrid from "../components/charts/SeasonGrid";
+import PointsProgressionChart from "../components/charts/PointsProgressionChart";
 
 interface Session {
     session_key: number;
@@ -166,8 +167,9 @@ export default function SeasonOverview() {
             )}
 
             {selectedSessionKey && (
-                <>
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="space-y-6">
+                    {/* Row 1: Race Result & Constructor Championship */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                         <Card
                             title={`Race Result — ${selectedSession?.circuit_short_name ?? ""}${selectedSession?.country_name ? ` · ${selectedSession.country_name}` : ""}`}
                         >
@@ -181,25 +183,6 @@ export default function SeasonOverview() {
                             ) : (
                                 <p className="text-f1-muted text-sm">
                                     Loading…
-                                </p>
-                            )}
-                        </Card>
-
-                        <Card
-                            title={`Driver Championship — ${year} (after ${selectedSession?.circuit_short_name ?? "…"})`}
-                        >
-                            {driverChampionshipLoading ? (
-                                <p className="text-f1-muted text-sm">
-                                    Loading championship points…
-                                </p>
-                            ) : driverChampionship?.length ? (
-                                <DriverChampionshipTable
-                                    standings={driverChampionship}
-                                    allDrivers={selectedDrivers ?? []}
-                                />
-                            ) : (
-                                <p className="text-f1-muted text-sm">
-                                    No championship data available.
                                 </p>
                             )}
                         </Card>
@@ -224,6 +207,34 @@ export default function SeasonOverview() {
                         </Card>
                     </div>
 
+                    {/* Row 2: Driver Championship & Points Progression */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <Card
+                            title={`Driver Championship — ${year} (after ${selectedSession?.circuit_short_name ?? "…"})`}
+                        >
+                            {driverChampionshipLoading ? (
+                                <p className="text-f1-muted text-sm">
+                                    Loading championship points…
+                                </p>
+                            ) : driverChampionship?.length ? (
+                                <DriverChampionshipTable
+                                    standings={driverChampionship}
+                                    allDrivers={selectedDrivers ?? []}
+                                />
+                            ) : (
+                                <p className="text-f1-muted text-sm">
+                                    No championship data available.
+                                </p>
+                            )}
+                        </Card>
+
+                        <PointsProgressionChart
+                            year={year}
+                            selectedSessionKey={selectedSessionKey}
+                        />
+                    </div>
+
+                    {/* Row 3: Season Results Grid */}
                     <Card
                         title={`Season Results Grid — ${year}`}
                         className="overflow-x-auto"
@@ -233,7 +244,7 @@ export default function SeasonOverview() {
                             selectedSessionKey={selectedSessionKey}
                         />
                     </Card>
-                </>
+                </div>
             )}
         </div>
     );

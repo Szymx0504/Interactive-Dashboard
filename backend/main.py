@@ -102,7 +102,22 @@ async def season_results(year: int):
       "results":  { "<session_key>": [{ driver_number, position, name_acronym, team_name, team_colour }] }
     }
     """
-    all_sessions = await get_sessions(year=year, session_type="Race")
+    async def safe_get_sessions(yr: int, stype: str) -> list[dict]:
+        try:
+            result = await get_sessions(year=yr, session_type=stype)
+            return result or []
+        except Exception as e:
+            print(f"[season_results] Failed to fetch {stype} sessions for {yr}: {e}")
+            return []
+
+    race_sessions, sprint_sessions = await asyncio.gather(
+        safe_get_sessions(year, "Race"),
+        safe_get_sessions(year, "Sprint"),
+    )
+    all_sessions = sorted(
+        race_sessions + sprint_sessions,
+        key=lambda s: s.get("date_start", ""),
+    )
     if not all_sessions:
         return {"sessions": [], "results": {}}
 
@@ -171,6 +186,7 @@ async def season_results(year: int):
             {
                 "session_key": s["session_key"],
                 "session_name": s.get("session_name", "Race"),
+                "session_type": s.get("session_type", "Race"),
                 "country_name": s.get("country_name", ""),
                 "circuit_short_name": s.get("circuit_short_name", ""),
                 "date_start": s.get("date_start", ""),

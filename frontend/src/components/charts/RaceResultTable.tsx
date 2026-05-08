@@ -31,20 +31,22 @@ function getSurname(driver: Driver | undefined): string {
     return parts[parts.length - 1] || name;
 }
 
-/** Normalise classified_status into a display token. */
 type ClassifiedStatus = "Finished" | "DNF" | "DNS" | "DSQ";
 
+/**
+ * OpenF1 session_result uses three separate boolean flags: dnf, dns, dsq.
+ * Priority order: DSQ > DNS > DNF > Finished.
+ */
 function resolveStatus(row: SessionResultRow): ClassifiedStatus {
-    const raw = ((row as any).classified_status ?? "").toUpperCase();
-    if (raw === "DNS") return "DNS";
-    if (raw === "DSQ" || raw === "DISQUALIFIED") return "DSQ";
-    if (raw === "DNF" || raw === "WDDNF" || raw === "RETIRED") return "DNF";
-    // "FINISHED" or blank → treat as a classified finisher
+    const r = row as any;
+    if (r.dsq === true) return "DSQ";
+    if (r.dns === true) return "DNS";
+    if (r.dnf === true) return "DNF";
     return "Finished";
 }
 
 const STATUS_LABEL: Record<ClassifiedStatus, string> = {
-    Finished: "",      // position shown in Pos column
+    Finished: "",
     DNF: "DNF",
     DNS: "DNS",
     DSQ: "DSQ",
@@ -52,16 +54,23 @@ const STATUS_LABEL: Record<ClassifiedStatus, string> = {
 
 const STATUS_COLOR: Record<ClassifiedStatus, string> = {
     Finished: "text-white",
-    DNF:      "text-red-400",
-    DNS:      "text-gray-400",
-    DSQ:      "text-purple-400",
+    DNF: "text-red-400",
+    DNS: "text-gray-400",
+    DSQ: "text-purple-400",
 };
 
 const STATUS_TITLE: Record<ClassifiedStatus, string> = {
     Finished: "",
-    DNF:      "Did Not Finish",
-    DNS:      "Did Not Start",
-    DSQ:      "Disqualified",
+    DNF: "Did Not Finish",
+    DNS: "Did Not Start",
+    DSQ: "Disqualified",
+};
+
+const STATUS_WEIGHTS: Record<ClassifiedStatus, number> = {
+    Finished: 0,
+    DNF: 1,
+    DNS: 2,
+    DSQ: 3,
 };
 
 export default function RaceResultTable({
@@ -69,31 +78,36 @@ export default function RaceResultTable({
     drivers,
 }: RaceResultTableProps) {
     const data = useMemo(() => {
-        // Include ALL drivers from the result set regardless of finishing position,
-        // but sort classified finishers first (by position), then non-finishers.
-        const rows = results
-            .filter((r) => r.position !== undefined && r.position !== null)
-            .map((row) => {
-                const driver = drivers.find(
-                    (d) => d.driver_number === row.driver_number,
-                );
-                const status = resolveStatus(row);
-                const finished = status === "Finished";
-                return {
-                    position:     row.position,
-                    driverNumber: row.driver_number,
-                    surname:      getSurname(driver),
-                    teamName:     driver?.team_name ?? "",
-                    color:        `#${driver?.team_colour || "ffffff"}`,
-                    points:       finished ? positionPoints(row.position) : 0,
-                    status,
-                    finished,
-                };
-            });
+        const rows = results.map((row) => {
+            const driver = drivers.find(
+                (d) => d.driver_number === row.driver_number,
+            );
+            const status = resolveStatus(row);
+            const finished = status === "Finished";
+            return {
+                position: row.position,
+                driverNumber: row.driver_number,
+                surname: getSurname(driver),
+                teamName: driver?.team_name ?? "",
+                color: `#${driver?.team_colour || "ffffff"}`,
+                points: finished ? positionPoints(row.position) : 0,
+                status,
+                finished,
+            };
+        });
 
-        // Classified finishers (P1–P20) sorted by position, then non-finishers
-        const finishers    = rows.filter((r) => r.finished).sort((a, b) => a.position - b.position);
-        const nonFinishers = rows.filter((r) => !r.finished).sort((a, b) => a.position - b.position);
+        // Classified finishers sorted by position first, then non-finishers
+        // (non-finishers have null position so sort them by driver number as a stable fallback)
+        const finishers = rows
+            .filter((r) => r.finished)
+            .sort((a, b) => (a.position ?? 99) - (b.position ?? 99));
+        const nonFinishers = rows
+            .filter((r) => !r.finished)
+            .sort(
+                (a, b) =>
+                    STATUS_WEIGHTS[a.status] - STATUS_WEIGHTS[b.status] ||
+                    a.driverNumber - b.driverNumber,
+            );
         return [...finishers, ...nonFinishers];
     }, [results, drivers]);
 
