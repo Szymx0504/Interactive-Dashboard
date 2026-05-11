@@ -350,36 +350,102 @@ async def position(session_key: int, driver_number: int | None = None, fresh: bo
 
 # ─── Car Data (telemetry) ────────────────────────────────────────────
 
-@app.get("/api/sessions/{session_key}/car_data/{driver_number}")
-async def car_data(session_key: int, driver_number: int):
-    return await get_car_data(session_key, driver_number)
+# NOTE: The batch endpoint with the literal path segment "best_laps" MUST be
+# registered before the parameterised {driver_number} routes, otherwise
+# FastAPI tries to parse "best_laps" as an int and returns 422.
 
-
-@app.get("/api/sessions/{session_key}/car_data/{driver_number}/best_lap")
-async def car_data_best_lap(
+@app.get("/api/sessions/{session_key}/car_data/best_laps")
+async def car_data_best_laps_batch(
     session_key: int,
-    driver_number: int,
-    date_after: str | None = Query(None, description="Q segment start (ISO) — only consider laps after this time"),
-    date_before: str | None = Query(None, description="Q segment end (ISO) — only consider laps before this time"),
+    date_after: str | None = Query(None, description="Q segment start (ISO)"),
+    date_before: str | None = Query(None, description="Q segment end (ISO)"),
 ):
     """
-    Return car telemetry trimmed to the driver's fastest lap within the
-    requested Q segment window (date_after / date_before).
+    Batch-fetch best-lap telemetry for ALL drivers in a session.
 
-    Without date_after/date_before the endpoint falls back to the overall
-    fastest lap across the whole session — useful when race_control
-    segment detection fails.
+    Returns { "<driver_number>": [ {car_data_point}, … ], … }
 
-    Flow:
-      1. Fetch lap list (small payload).
-      2. If a segment window is provided, restrict candidate laps to that window.
-      3. Find the fastest valid lap in the window.
-      4. Pass date>= / date<= for only that lap's narrow time window to OpenF1
-         /car_data, returning ~100-300 rows instead of the full session payload.
+    This replaces 20 parallel /best_lap requests with a single call that:
+      • Reuses the cached all-laps payload (1 OpenF1 call instead of 20).
+      • Paces car_data fetches in small batches to avoid 429 rate limits.
+    """
+    drivers_list, all_laps = await asyncio.gather(
+        get_drivers(session_key),
+        get_laps(session_key),          # cached from qualifying table load
+    )
+    if not drivers_list or not all_laps:
+        return {}
+
+    driver_numbers = list({d["driver_number"] for d in drivers_list})
+
+    # Only fetch telemetry for drivers that actually have valid laps in the
+    # segment window — no point hitting the API for drivers not on track.
+    drivers_with_laps: list[int] = []
+    for dn in driver_numbers:
+        dn_laps = [l for l in all_laps if l.get("driver_number") == dn]
+        if date_after or date_before:
+            dn_laps = [
+                l for l in dn_laps
+                if (not date_after or (l.get("date_start") or "") >= date_after)
+                and (not date_before or (l.get("date_start") or "") <= date_before)
+            ]
+        if any(l.get("lap_duration") and not l.get("is_pit_out_lap") for l in dn_laps):
+            drivers_with_laps.append(dn)
+
+    print(f"[best_laps_batch] session {session_key}: "
+          f"{len(drivers_with_laps)}/{len(driver_numbers)} drivers have valid laps")
+
+    result: dict[str, list[dict]] = {}
+    BATCH = 3
+
+    for i in range(0, len(drivers_with_laps), BATCH):
+        batch = drivers_with_laps[i : i + BATCH]
+
+        async def _fetch_one(dn: int) -> tuple[int, list[dict]]:
+            try:
+                return dn, await _best_lap_telemetry(
+                    session_key, dn, date_after, date_before, all_laps
+                )
+            except Exception as exc:
+                print(f"[best_laps_batch] driver {dn} failed: {exc}")
+                return dn, []
+
+        batch_results = await asyncio.gather(*(_fetch_one(dn) for dn in batch))
+        for dn, data in batch_results:
+            if data:
+                result[str(dn)] = data
+
+        # Brief pause between batches to stay below OpenF1 rate limits
+        if i + BATCH < len(drivers_with_laps):
+            await asyncio.sleep(0.5)
+
+    print(f"[best_laps_batch] returning telemetry for {len(result)} drivers")
+    return result
+
+
+async def _best_lap_telemetry(
+    session_key: int,
+    driver_number: int,
+    date_after: str | None = None,
+    date_before: str | None = None,
+    preloaded_laps: list[dict] | None = None,
+) -> list[dict]:
+    """
+    Core logic shared by the single-driver and batch endpoints.
+
+    When *preloaded_laps* is provided (batch mode) no extra /laps API call
+    is made — the caller already fetched them once for the whole session.
     """
     from datetime import datetime, timedelta
 
-    all_laps = await get_laps(session_key, driver_number)
+    if preloaded_laps is not None:
+        all_laps = [l for l in preloaded_laps if l.get("driver_number") == driver_number]
+    else:
+        # Single-driver call — fetch all laps for session (likely cached)
+        # and filter locally, instead of per-driver API call.
+        session_laps = await get_laps(session_key)
+        all_laps = [l for l in session_laps if l.get("driver_number") == driver_number]
+
     if not all_laps:
         return []
 
@@ -393,8 +459,6 @@ async def car_data_best_lap(
         ]
         if seg_laps:
             candidate_laps = seg_laps
-        # If the filter yields nothing (e.g. race_control dates slightly off),
-        # fall through to the full session so we always return something.
 
     # ── Step 2: find fastest valid lap ───────────────────────────────
     valid_laps = [
@@ -411,8 +475,6 @@ async def car_data_best_lap(
         return []
 
     # ── Step 3: determine the end of the lap window ───────────────────
-    # Prefer the NEXT lap's date_start as the precise boundary so we don't
-    # clip telemetry recorded during the last portion of the lap.
     next_lap = next(
         (l for l in all_laps if l.get("lap_number") == lap_num + 1 and l.get("date_start")),
         None,
@@ -436,6 +498,22 @@ async def car_data_best_lap(
     )
 
     return sliced
+
+
+@app.get("/api/sessions/{session_key}/car_data/{driver_number}/best_lap")
+async def car_data_best_lap(
+    session_key: int,
+    driver_number: int,
+    date_after: str | None = Query(None, description="Q segment start (ISO)"),
+    date_before: str | None = Query(None, description="Q segment end (ISO)"),
+):
+    """Single-driver best-lap telemetry (kept for backwards compat)."""
+    return await _best_lap_telemetry(session_key, driver_number, date_after, date_before)
+
+
+@app.get("/api/sessions/{session_key}/car_data/{driver_number}")
+async def car_data(session_key: int, driver_number: int):
+    return await get_car_data(session_key, driver_number)
 
 
 # ─── Pit Stops ───────────────────────────────────────────────────────

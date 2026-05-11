@@ -27,7 +27,14 @@ function TireBadge({ compound }: { compound: string }) {
     );
 }
 
-export default function QualifyingTable({ drivers, laps, stints, qSession, focusDriver, onFocusDriver }: Props) {
+export default function QualifyingTable({
+    drivers,
+    laps,
+    stints,
+    qSession,
+    focusDriver,
+    onFocusDriver,
+}: Props) {
     const rows = useMemo(() => {
         const bestByDriver = bestLapsByDriver(laps);
 
@@ -38,16 +45,24 @@ export default function QualifyingTable({ drivers, laps, stints, qSession, focus
 
         const sorted = [...bestByDriver.entries()]
             .map(([num, lap]) => ({ num, lap, driver: driverMap.get(num) }))
-            .sort((a, b) => (a.lap.lap_duration ?? Infinity) - (b.lap.lap_duration ?? Infinity));
+            .sort(
+                (a, b) =>
+                    (a.lap.lap_duration ?? Infinity) -
+                    (b.lap.lap_duration ?? Infinity),
+            );
 
         const poleTime = sorted[0]?.lap.lap_duration ?? null;
-        const cutoffs: Record<QSession, number> = { Q1: 15, Q2: 10, Q3: 0 };
+        const cutoffs: Record<QSession, number> = { Q1: 0, Q2: 15, Q3: 10 };
         const cutoff = cutoffs[qSession];
 
         const driverSet = new Set(bestByDriver.keys());
         const eliminated = drivers
             .filter((d) => !driverSet.has(d.driver_number))
-            .map((d) => ({ num: d.driver_number, lap: null as QualLap | null, driver: d }));
+            .map((d) => ({
+                num: d.driver_number,
+                lap: null as QualLap | null,
+                driver: d,
+            }));
 
         return [...sorted, ...eliminated].map((r, i) => ({
             pos: i + 1,
@@ -65,8 +80,19 @@ export default function QualifyingTable({ drivers, laps, stints, qSession, focus
             <table className="w-full text-[11px] font-mono border-collapse">
                 <thead>
                     <tr>
-                        {["Pos", "#", "Name", "Team", "Best Lap", "Gap", "Tire"].map((h) => (
-                            <th key={h} className="py-2 px-3 text-left text-[10px] font-semibold text-f1-muted uppercase tracking-wider whitespace-nowrap">
+                        {[
+                            "Pos",
+                            "#",
+                            "Name",
+                            "Team",
+                            "Best Lap",
+                            "Gap",
+                            "Tire",
+                        ].map((h) => (
+                            <th
+                                key={h}
+                                className="py-2 px-3 text-left text-[10px] font-semibold text-f1-muted uppercase tracking-wider whitespace-nowrap"
+                            >
                                 {h}
                             </th>
                         ))}
@@ -80,17 +106,43 @@ export default function QualifyingTable({ drivers, laps, stints, qSession, focus
                             <tr
                                 key={r.driverNumber}
                                 className={`border-t border-f1-border cursor-pointer transition-colors ${focused ? "bg-f1-border/40" : "hover:bg-f1-border/20"} ${r.eliminated ? "opacity-40" : ""}`}
-                                onClick={() => onFocusDriver(focused ? null : r.driverNumber)}
+                                onClick={() =>
+                                    onFocusDriver(
+                                        focused ? null : r.driverNumber,
+                                    )
+                                }
                             >
-                                <td className="py-2 px-3 text-f1-muted">{r.pos}</td>
-                                <td className="py-2 px-3 font-bold" style={{ color }}>{r.driverNumber}</td>
-                                <td className="py-2 px-3 font-bold" style={{ color }}>
-                                    {r.driver?.full_name?.split(" ").slice(-1)[0] ?? r.driver?.name_acronym ?? r.driverNumber}
+                                <td className="py-2 px-3 text-f1-muted">
+                                    {r.pos}
                                 </td>
-                                <td className="py-2 px-3 text-f1-muted">{r.driver?.team_name ?? "—"}</td>
-                                <td className="py-2 px-3 text-white">{fmt(r.bestLap)}</td>
-                                <td className="py-2 px-3 text-f1-muted">{fmtGap(r.gap)}</td>
-                                <td className="py-2 px-3"><TireBadge compound={r.tire} /></td>
+                                <td
+                                    className="py-2 px-3 font-bold"
+                                    style={{ color }}
+                                >
+                                    {r.driverNumber}
+                                </td>
+                                <td
+                                    className="py-2 px-3 font-bold"
+                                    style={{ color }}
+                                >
+                                    {r.driver?.full_name
+                                        ?.split(" ")
+                                        .slice(-1)[0] ??
+                                        r.driver?.name_acronym ??
+                                        r.driverNumber}
+                                </td>
+                                <td className="py-2 px-3 text-f1-muted">
+                                    {r.driver?.team_name ?? "—"}
+                                </td>
+                                <td className="py-2 px-3 text-white">
+                                    {fmt(r.bestLap)}
+                                </td>
+                                <td className="py-2 px-3 text-f1-muted">
+                                    {fmtGap(r.gap)}
+                                </td>
+                                <td className="py-2 px-3">
+                                    <TireBadge compound={r.tire} />
+                                </td>
                             </tr>
                         );
                     })}

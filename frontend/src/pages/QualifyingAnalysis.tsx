@@ -234,48 +234,35 @@ export default function QualifyingAnalysis() {
     );
 
     // Re-fetch whenever session OR the active segment window changes.
+    // Uses the batch endpoint — one request instead of 20 parallel ones —
+    // so the backend can pace OpenF1 calls and avoid 429 rate limits.
     useEffect(() => {
         setCarDataMap(new Map());
         setCarDataError(null);
         if (!selectedSessionKey || !uniqueDrivers.length) return;
 
         setCarDataLoading(true);
-        const map = new Map<number, QualCarData[]>();
 
-        // Build query string so the backend restricts its "best lap" search to
-        // the current Q segment window.  Without this it would find the best lap
-        // across the entire session (e.g. a Q1 lap when Q3 is selected).
         const params = new URLSearchParams();
         if (segStart) params.set("date_after", segStart);
         if (segEnd) params.set("date_before", segEnd);
         const qs = params.toString() ? `?${params}` : "";
 
-        Promise.all(
-            uniqueDrivers.slice(0, 20).map(async (d) => {
-                try {
-                    const resp = await fetch(
-                        `/api/sessions/${selectedSessionKey}/car_data/${d.driver_number}/best_lap${qs}`,
-                    );
-                    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                    const data = await resp.json();
-                    if (Array.isArray(data) && data.length) {
-                        map.set(d.driver_number, data as QualCarData[]);
-                    }
-                } catch (e) {
-                    console.warn(
-                        `[CarData] driver ${d.driver_number} failed:`,
-                        e,
-                    );
+        fetch(`/api/sessions/${selectedSessionKey}/car_data/best_laps${qs}`)
+            .then(async (resp) => {
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                const json: Record<string, QualCarData[]> = await resp.json();
+                const map = new Map<number, QualCarData[]>();
+                for (const [dn, pts] of Object.entries(json)) {
+                    if (pts.length) map.set(Number(dn), pts);
                 }
-            }),
-        )
-            .then(() => {
-                setCarDataMap(new Map(map));
+                setCarDataMap(map);
                 setCarDataLoading(false);
                 if (!map.size)
                     setCarDataError("No telemetry returned for any driver.");
             })
             .catch((e) => {
+                console.warn("[CarData] batch fetch failed:", e);
                 setCarDataError(String(e));
                 setCarDataLoading(false);
             });
@@ -469,50 +456,41 @@ export default function QualifyingAnalysis() {
                                 drivers={uniqueDrivers}
                                 laps={laps}
                                 carDataMap={carDataMap}
-                                focusDriver={focusDriver}
-                                onFocusDriver={setFocusDriver}
                             />
                         )}
                     </Card>
-
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        <Card title="Engine — RPM (line) + Gear (stepped)">
-                            {carDataLoading ? (
-                                <p className="text-f1-muted text-sm">
-                                    Loading telemetry…
-                                </p>
-                            ) : carDataError ? (
-                                <p className="text-f1-muted text-sm">
-                                    {carDataError}
-                                </p>
-                            ) : (
-                                <EngineChart
-                                    drivers={uniqueDrivers}
-                                    carDataMap={carDataMap}
-                                    focusDriver={focusDriver}
-                                    onFocusDriver={setFocusDriver}
-                                />
-                            )}
-                        </Card>
-                        <Card title="Pedal Trace — Throttle / Brake">
-                            {carDataLoading ? (
-                                <p className="text-f1-muted text-sm">
-                                    Loading telemetry…
-                                </p>
-                            ) : carDataError ? (
-                                <p className="text-f1-muted text-sm">
-                                    {carDataError}
-                                </p>
-                            ) : (
-                                <PedalChart
-                                    drivers={uniqueDrivers}
-                                    carDataMap={carDataMap}
-                                    focusDriver={focusDriver}
-                                    onFocusDriver={setFocusDriver}
-                                />
-                            )}
-                        </Card>
-                    </div>
+                    <Card title="Engine — RPM (line) + Gear (stepped)">
+                        {carDataLoading ? (
+                            <p className="text-f1-muted text-sm">
+                                Loading telemetry…
+                            </p>
+                        ) : carDataError ? (
+                            <p className="text-f1-muted text-sm">
+                                {carDataError}
+                            </p>
+                        ) : (
+                            <EngineChart
+                                drivers={uniqueDrivers}
+                                carDataMap={carDataMap}
+                            />
+                        )}
+                    </Card>
+                    <Card title="Pedal Trace — Throttle / Brake">
+                        {carDataLoading ? (
+                            <p className="text-f1-muted text-sm">
+                                Loading telemetry…
+                            </p>
+                        ) : carDataError ? (
+                            <p className="text-f1-muted text-sm">
+                                {carDataError}
+                            </p>
+                        ) : (
+                            <PedalChart
+                                drivers={uniqueDrivers}
+                                carDataMap={carDataMap}
+                            />
+                        )}
+                    </Card>
                 </div>
             )}
         </div>

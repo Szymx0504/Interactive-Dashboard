@@ -9,6 +9,7 @@ import httpx
 from cachetools import TTLCache
 from dotenv import load_dotenv
 from typing import Any
+from urllib.parse import quote
 
 load_dotenv()
 
@@ -65,7 +66,24 @@ async def _fetch(endpoint: str, params: dict[str, Any] | None = None, live: bool
             if OPENF1_API_KEY and OPENF1_API_KEY_QUERY_PARAM:
                 request_params[OPENF1_API_KEY_QUERY_PARAM] = OPENF1_API_KEY
 
-            resp = await client.get(f"{BASE_URL}{endpoint}", params=request_params)
+            # Build URL manually to preserve comparison operators (>=, <=).
+            # OpenF1 uses custom query parsing where the operator IS the
+            # separator: date>=2023-09-15  (NOT date>==2023-09-15).
+            # For standard equality params we use the normal key=value form.
+            if request_params:
+                parts: list[str] = []
+                for k, v in request_params.items():
+                    encoded_v = quote(str(v), safe="")
+                    if k.endswith(">=") or k.endswith("<="):
+                        # Operator already contains '=', no extra separator
+                        parts.append(f"{k}{encoded_v}")
+                    else:
+                        parts.append(f"{k}={encoded_v}")
+                url = f"{BASE_URL}{endpoint}?{'&'.join(parts)}"
+            else:
+                url = f"{BASE_URL}{endpoint}"
+
+            resp = await client.get(url)
 
             if resp.status_code == 429:
                 wait = RETRY_BACKOFF[min(attempt, len(RETRY_BACKOFF) - 1)]

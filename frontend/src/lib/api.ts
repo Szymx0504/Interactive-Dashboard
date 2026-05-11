@@ -57,7 +57,7 @@ export interface QualCarData {
     speed: number;
     n_gear: number;
     throttle: number;
-    brake: boolean;
+    brake: number;
     drs: number;
 }
 
@@ -87,7 +87,8 @@ export function bestLapsByDriver(laps: QualLap[]): Map<number, QualLap> {
     laps.forEach((lap) => {
         if (!lap.lap_duration || lap.is_pit_out_lap) return;
         const ex = map.get(lap.driver_number);
-        if (!ex || lap.lap_duration < ex.lap_duration!) map.set(lap.driver_number, lap);
+        if (!ex || lap.lap_duration < ex.lap_duration!)
+            map.set(lap.driver_number, lap);
     });
     return map;
 }
@@ -131,7 +132,9 @@ export const api = {
     },
 
     getCarData: (sessionKey: number, driverNumber: number) =>
-        fetchJson<CarData[]>(`/sessions/${sessionKey}/car_data/${driverNumber}`),
+        fetchJson<CarData[]>(
+            `/sessions/${sessionKey}/car_data/${driverNumber}`,
+        ),
 
     getPitStops: (sessionKey: number, driverNumber?: number) => {
         const qs = driverNumber ? `?driver_number=${driverNumber}` : "";
@@ -153,7 +156,9 @@ export const api = {
 
     getLocation: (sessionKey: number, driverNumber?: number) => {
         const qs = driverNumber ? `?driver_number=${driverNumber}` : "";
-        return fetchJson<LocationPoint[]>(`/sessions/${sessionKey}/location${qs}`);
+        return fetchJson<LocationPoint[]>(
+            `/sessions/${sessionKey}/location${qs}`,
+        );
     },
 
     getRaceControl: (sessionKey: number) =>
@@ -163,32 +168,50 @@ export const api = {
         fetchJson<TrackMapData>(`/sessions/${sessionKey}/track_map`),
 
     getDriverChampionship: (sessionKey: number) =>
-        fetchJson<DriverChampionshipEntry[]>(`/championship/drivers?session_key=${sessionKey}`),
+        fetchJson<DriverChampionshipEntry[]>(
+            `/championship/drivers?session_key=${sessionKey}`,
+        ),
 
     getConstructorChampionship: (sessionKey: number) =>
-        fetchJson<ConstructorChampionshipEntry[]>(`/championship/teams?session_key=${sessionKey}`),
+        fetchJson<ConstructorChampionshipEntry[]>(
+            `/championship/teams?session_key=${sessionKey}`,
+        ),
 
     getDriverChampionshipByYear: (year: number, afterSessionKey?: number) => {
         const params = new URLSearchParams({ year: String(year) });
-        if (afterSessionKey) params.set("after_session_key", String(afterSessionKey));
-        return fetchJson<DriverChampionshipEntry[]>(`/championship/drivers/by-year?${params}`);
+        if (afterSessionKey)
+            params.set("after_session_key", String(afterSessionKey));
+        return fetchJson<DriverChampionshipEntry[]>(
+            `/championship/drivers/by-year?${params}`,
+        );
     },
 
-    getConstructorChampionshipByYear: (year: number, afterSessionKey?: number) => {
+    getConstructorChampionshipByYear: (
+        year: number,
+        afterSessionKey?: number,
+    ) => {
         const params = new URLSearchParams({ year: String(year) });
-        if (afterSessionKey) params.set("after_session_key", String(afterSessionKey));
-        return fetchJson<ConstructorChampionshipEntry[]>(`/championship/teams/by-year?${params}`);
+        if (afterSessionKey)
+            params.set("after_session_key", String(afterSessionKey));
+        return fetchJson<ConstructorChampionshipEntry[]>(
+            `/championship/teams/by-year?${params}`,
+        );
     },
 
-    getCarDataAll: async (sessionKey: number, driverNumbers: number[]): Promise<Map<number, CarData[]>> => {
+    getCarDataAll: async (
+        sessionKey: number,
+        driverNumbers: number[],
+    ): Promise<Map<number, CarData[]>> => {
         const map = new Map<number, CarData[]>();
         await Promise.all(
             driverNumbers.map(async (num) => {
                 try {
-                    const data = await fetchJson<CarData[]>(`/sessions/${sessionKey}/car_data/${num}`);
+                    const data = await fetchJson<CarData[]>(
+                        `/sessions/${sessionKey}/car_data/${num}`,
+                    );
                     if (data?.length) map.set(num, data);
                 } catch {}
-            })
+            }),
         );
         return map;
     },
