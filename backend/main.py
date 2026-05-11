@@ -1,3 +1,4 @@
+#main.py
 """
 F1 Analyzer — FastAPI Backend
 Serves OpenF1 data via REST + WebSocket for race replay.
@@ -12,6 +13,7 @@ import json
 
 from openf1_client import (
     get_sessions,
+    get_qualifying_sessions,
     get_session,
     get_drivers,
     get_laps,
@@ -67,15 +69,11 @@ async def health():
 
 @app.get("/api/sessions")
 async def sessions(year: int | None = None, session_type: str | None = None):
-    return await get_sessions(year, session_type)
-
-
-@app.get("/api/sessions/{session_key}")
-async def session_detail(session_key: int):
-    data = await get_session(session_key)
-    if not data:
-        return {"error": "Session not found"}
-    return data
+    if session_type and session_type.lower() == "qualifying":
+        results = await get_qualifying_sessions(year) if year else await get_sessions(session_type=session_type)
+    else:
+        results = await get_sessions(year, session_type)
+    return results
 
 
 @app.get("/api/sessions/latest")
@@ -86,22 +84,59 @@ async def latest_session():
     return data
 
 
+@app.get("/api/sessions/{session_key}")
+async def session_detail(session_key: int):
+    data = await get_session(session_key)
+    if not data:
+        return {"error": "Session not found"}
+    return data
+
+
+# ─── Qualifying segments ─────────────────────────────────────────────
+#
+# OpenF1 often returns one combined "Qualifying" session row instead of
+# separate Q1/Q2/Q3 rows.  The correct way to split Q1/Q2/Q3 is to look
+# at the race_control feed for "Started" messages:
+#   • 1st "Started"  → Q1 begins
+#   • 2nd "Started"  → Q2 begins (Q1 ends)
+#   • 3rd "Started"  → Q3 begins (Q2 ends)
+#   • Q3 ends at session close (no upper bound)
+#
+# Returns: { "Q1": {"start": ISO, "end": ISO|null},
+#            "Q2": {"start": ISO, "end": ISO|null},
+#            "Q3": {"start": ISO, "end": null} }
+# Missing keys mean that segment didn't occur (e.g. sprint weekends).
+
+@app.get("/api/sessions/{session_key}/qualifying_segments")
+async def qualifying_segments(session_key: int):
+    rc = await get_race_control(session_key)
+
+    # Find every "Started" message, sorted chronologically.
+    # OpenF1 uses message text like "Q1 STARTED", "Q2 STARTED", "Q3 STARTED".
+    started = sorted(
+        [r for r in rc if "started" in (r.get("message") or "").lower()],
+        key=lambda r: r.get("date", ""),
+    )
+
+    if not started:
+        print(f"[qualifying_segments] No 'Started' events found for session {session_key}. "
+              f"RC message sample: {[r.get('message') for r in rc[:10]]}")
+        return {}
+
+    segments: dict[str, dict] = {}
+    labels = ["Q1", "Q2", "Q3"]
+    for i, ev in enumerate(started[:3]):
+        end = started[i + 1]["date"] if i + 1 < len(started) else None
+        segments[labels[i]] = {"start": ev["date"], "end": end}
+
+    print(f"[qualifying_segments] session {session_key}: {list(segments.keys())}")
+    return segments
+
+
 # ─── Season Results (bulk) ───────────────────────────────────────────
 
 @app.get("/api/season/{year}/results")
 async def season_results(year: int):
-    """
-    Return finishing positions for every Race session in a year in one call.
-    Uses session_result (one compact row per driver) instead of /position
-    (thousands of timestamped rows). Fetches in small sequential chunks to
-    avoid hammering OpenF1 with 24 simultaneous requests.
-
-    Response:
-    {
-      "sessions": [{ session_key, session_name, country_name, circuit_short_name, date_start, year }],
-      "results":  { "<session_key>": [{ driver_number, position, name_acronym, team_name, team_colour }] }
-    }
-    """
     async def safe_get_sessions(yr: int, stype: str) -> list[dict]:
         try:
             result = await get_sessions(year=yr, session_type=stype)
@@ -128,8 +163,6 @@ async def season_results(year: int):
         except Exception:
             return s["session_key"], []
 
-    # Fetch in chunks of 3 with a small pause between chunks so we don't
-    # saturate the semaphore and trigger cascading 429s.
     CHUNK = 3
     pairs: list[tuple[int, list[dict]]] = []
     for i in range(0, len(all_sessions), CHUNK):
@@ -139,9 +172,6 @@ async def season_results(year: int):
         if i + CHUNK < len(all_sessions):
             await asyncio.sleep(0.5)
 
-    # Build a driver-info cache keyed by driver_number so we can enrich result
-    # rows with full_name / name_acronym (session_result doesn't include them).
-    # Fetch drivers only for sessions that have results, in chunks.
     sessions_with_results = [s for s in all_sessions
                               if any(sk == s["session_key"] for sk, data in pairs if data)]
     driver_cache: dict[int, dict] = {}
@@ -163,7 +193,6 @@ async def season_results(year: int):
         if i + CHUNK < len(sessions_with_results):
             await asyncio.sleep(0.3)
 
-    # Enrich each result row with driver name fields
     enriched_results: dict[str, list[dict]] = {}
     for sk, rows in pairs:
         enriched_rows = []
@@ -175,7 +204,6 @@ async def season_results(year: int):
                 "full_name": row.get("full_name") or driver.get("full_name"),
                 "name_acronym": row.get("name_acronym") or driver.get("name_acronym"),
                 "broadcast_name": row.get("broadcast_name") or driver.get("broadcast_name"),
-                # team_name / team_colour already come from session_result; keep them
                 "team_name": row.get("team_name") or driver.get("team_name"),
                 "team_colour": row.get("team_colour") or driver.get("team_colour"),
             })
@@ -210,6 +238,8 @@ async def session_result(session_key: int, max_position: int | None = None):
     return await get_session_result(session_key, max_position)
 
 
+# ─── Championship ────────────────────────────────────────────────────
+
 @app.get("/api/championship/drivers")
 async def driver_championship(
     session_key: int,
@@ -220,74 +250,13 @@ async def driver_championship(
         get_drivers(session_key),
     )
     drivers_map = {d["driver_number"]: d for d in drivers_list}
-
-    # Some drivers (e.g. mid-season replacements) won't appear in the final
-    # session's driver list — fetch them individually across all sessions.
-    missing = [
-        e["driver_number"] for e in standings
-        if e.get("driver_number") not in drivers_map
-    ]
-    if missing:
-        extras = await asyncio.gather(*(get_driver_by_number(dn) for dn in missing))
-        for d in extras:
-            if d:
-                drivers_map[d["driver_number"]] = d
-
     for entry in standings:
-        driver = drivers_map.get(entry.get("driver_number"))
-        if driver:
-            entry["full_name"] = driver.get("full_name")
-            entry["name_acronym"] = driver.get("name_acronym")
-            entry["broadcast_name"] = driver.get("broadcast_name")
-            entry["team_name"] = driver.get("team_name")
-            entry["team_colour"] = driver.get("team_colour")
+        dn = entry.get("driver_number")
+        if dn in drivers_map:
+            entry.setdefault("team_colour", drivers_map[dn].get("team_colour"))
+            entry.setdefault("name_acronym", drivers_map[dn].get("name_acronym"))
+            entry.setdefault("full_name", drivers_map[dn].get("full_name"))
     return standings
-
-
-@app.get("/api/championship/drivers/by-year")
-async def driver_championship_by_year(year: int, after_session_key: int | None = None):
-    """
-    Look up driver championship standings for a given year.
-    Finds the most recent completed race up to after_session_key (or the last
-    race of the year) and queries the championship endpoint with that session.
-    """
-    all_sessions = await get_sessions(year=year, session_type="Race")
-    if not all_sessions:
-        return []
-
-    today = __import__("datetime").datetime.utcnow().isoformat()
-    past = [s for s in all_sessions if s.get("date_start", "") <= today]
-    if not past:
-        return []
-
-    if after_session_key:
-        candidates = [s for s in past if s["session_key"] <= after_session_key]
-        target_session = candidates[-1] if candidates else past[-1]
-    else:
-        target_session = past[-1]
-
-    return await driver_championship(target_session["session_key"])
-
-
-@app.get("/api/championship/teams/by-year")
-async def constructor_championship_by_year(year: int, after_session_key: int | None = None):
-    """Same as above but for constructors."""
-    all_sessions = await get_sessions(year=year, session_type="Race")
-    if not all_sessions:
-        return []
-
-    today = __import__("datetime").datetime.utcnow().isoformat()
-    past = [s for s in all_sessions if s.get("date_start", "") <= today]
-    if not past:
-        return []
-
-    if after_session_key:
-        candidates = [s for s in past if s["session_key"] <= after_session_key]
-        target_session = candidates[-1] if candidates else past[-1]
-    else:
-        target_session = past[-1]
-
-    return await constructor_championship(target_session["session_key"])
 
 
 @app.get("/api/championship/teams")
@@ -310,11 +279,66 @@ async def constructor_championship(
     return standings
 
 
+@app.get("/api/championship/drivers/by-year")
+async def driver_championship_by_year(year: int, after_session_key: int | None = None):
+    all_sessions = await get_sessions(year=year, session_type="Race")
+    if not all_sessions:
+        return []
+
+    today = __import__("datetime").datetime.utcnow().isoformat()
+    past = [s for s in all_sessions if s.get("date_start", "") <= today]
+    if not past:
+        return []
+
+    if after_session_key:
+        candidates = [s for s in past if s["session_key"] <= after_session_key]
+        target_session = candidates[-1] if candidates else past[-1]
+    else:
+        target_session = past[-1]
+
+    return await driver_championship(target_session["session_key"])
+
+
+@app.get("/api/championship/teams/by-year")
+async def constructor_championship_by_year(year: int, after_session_key: int | None = None):
+    all_sessions = await get_sessions(year=year, session_type="Race")
+    if not all_sessions:
+        return []
+
+    today = __import__("datetime").datetime.utcnow().isoformat()
+    past = [s for s in all_sessions if s.get("date_start", "") <= today]
+    if not past:
+        return []
+
+    if after_session_key:
+        candidates = [s for s in past if s["session_key"] <= after_session_key]
+        target_session = candidates[-1] if candidates else past[-1]
+    else:
+        target_session = past[-1]
+
+    return await constructor_championship(target_session["session_key"])
+
+
 # ─── Laps ────────────────────────────────────────────────────────────
 
 @app.get("/api/sessions/{session_key}/laps")
-async def laps(session_key: int, driver_number: int | None = None):
-    return await get_laps(session_key, driver_number)
+async def laps(
+    session_key: int,
+    driver_number: int | None = None,
+    date_after: str | None = Query(None, description="ISO datetime — return laps with date_start >= this value"),
+    date_before: str | None = Query(None, description="ISO datetime — return laps with date_start <= this value"),
+):
+    """
+    Return laps for a session, optionally filtered to a Q segment window.
+    date_after / date_before correspond to the start/end of a Q1|Q2|Q3
+    segment as returned by /qualifying_segments.
+    """
+    data = await get_laps(session_key, driver_number)
+    if date_after:
+        data = [l for l in data if (l.get("date_start") or "") >= date_after]
+    if date_before:
+        data = [l for l in data if (l.get("date_start") or "") <= date_before]
+    return data
 
 
 # ─── Position ────────────────────────────────────────────────────────
@@ -325,6 +349,167 @@ async def position(session_key: int, driver_number: int | None = None, fresh: bo
 
 
 # ─── Car Data (telemetry) ────────────────────────────────────────────
+
+# NOTE: The batch endpoint with the literal path segment "best_laps" MUST be
+# registered before the parameterised {driver_number} routes, otherwise
+# FastAPI tries to parse "best_laps" as an int and returns 422.
+
+@app.get("/api/sessions/{session_key}/car_data/best_laps")
+async def car_data_best_laps_batch(
+    session_key: int,
+    date_after: str | None = Query(None, description="Q segment start (ISO)"),
+    date_before: str | None = Query(None, description="Q segment end (ISO)"),
+):
+    """
+    Batch-fetch best-lap telemetry for ALL drivers in a session.
+
+    Returns { "<driver_number>": [ {car_data_point}, … ], … }
+
+    This replaces 20 parallel /best_lap requests with a single call that:
+      • Reuses the cached all-laps payload (1 OpenF1 call instead of 20).
+      • Paces car_data fetches in small batches to avoid 429 rate limits.
+    """
+    drivers_list, all_laps = await asyncio.gather(
+        get_drivers(session_key),
+        get_laps(session_key),          # cached from qualifying table load
+    )
+    if not drivers_list or not all_laps:
+        return {}
+
+    driver_numbers = list({d["driver_number"] for d in drivers_list})
+
+    # Only fetch telemetry for drivers that actually have valid laps in the
+    # segment window — no point hitting the API for drivers not on track.
+    drivers_with_laps: list[int] = []
+    for dn in driver_numbers:
+        dn_laps = [l for l in all_laps if l.get("driver_number") == dn]
+        if date_after or date_before:
+            dn_laps = [
+                l for l in dn_laps
+                if (not date_after or (l.get("date_start") or "") >= date_after)
+                and (not date_before or (l.get("date_start") or "") <= date_before)
+            ]
+        if any(l.get("lap_duration") and not l.get("is_pit_out_lap") for l in dn_laps):
+            drivers_with_laps.append(dn)
+
+    print(f"[best_laps_batch] session {session_key}: "
+          f"{len(drivers_with_laps)}/{len(driver_numbers)} drivers have valid laps")
+
+    result: dict[str, list[dict]] = {}
+    BATCH = 3
+
+    for i in range(0, len(drivers_with_laps), BATCH):
+        batch = drivers_with_laps[i : i + BATCH]
+
+        async def _fetch_one(dn: int) -> tuple[int, list[dict]]:
+            try:
+                return dn, await _best_lap_telemetry(
+                    session_key, dn, date_after, date_before, all_laps
+                )
+            except Exception as exc:
+                print(f"[best_laps_batch] driver {dn} failed: {exc}")
+                return dn, []
+
+        batch_results = await asyncio.gather(*(_fetch_one(dn) for dn in batch))
+        for dn, data in batch_results:
+            if data:
+                result[str(dn)] = data
+
+        # Brief pause between batches to stay below OpenF1 rate limits
+        if i + BATCH < len(drivers_with_laps):
+            await asyncio.sleep(0.5)
+
+    print(f"[best_laps_batch] returning telemetry for {len(result)} drivers")
+    return result
+
+
+async def _best_lap_telemetry(
+    session_key: int,
+    driver_number: int,
+    date_after: str | None = None,
+    date_before: str | None = None,
+    preloaded_laps: list[dict] | None = None,
+) -> list[dict]:
+    """
+    Core logic shared by the single-driver and batch endpoints.
+
+    When *preloaded_laps* is provided (batch mode) no extra /laps API call
+    is made — the caller already fetched them once for the whole session.
+    """
+    from datetime import datetime, timedelta
+
+    if preloaded_laps is not None:
+        all_laps = [l for l in preloaded_laps if l.get("driver_number") == driver_number]
+    else:
+        # Single-driver call — fetch all laps for session (likely cached)
+        # and filter locally, instead of per-driver API call.
+        session_laps = await get_laps(session_key)
+        all_laps = [l for l in session_laps if l.get("driver_number") == driver_number]
+
+    if not all_laps:
+        return []
+
+    # ── Step 1: restrict to the Q segment window if provided ─────────
+    candidate_laps = all_laps
+    if date_after or date_before:
+        seg_laps = [
+            l for l in all_laps
+            if (not date_after  or (l.get("date_start") or "") >= date_after)
+            and (not date_before or (l.get("date_start") or "") <= date_before)
+        ]
+        if seg_laps:
+            candidate_laps = seg_laps
+
+    # ── Step 2: find fastest valid lap ───────────────────────────────
+    valid_laps = [
+        l for l in candidate_laps
+        if l.get("lap_duration") and not l.get("is_pit_out_lap")
+    ]
+    if not valid_laps:
+        return []
+
+    best_lap = min(valid_laps, key=lambda l: l["lap_duration"])
+    lap_num = best_lap.get("lap_number")
+    t0_str = best_lap.get("date_start", "")
+    if not t0_str:
+        return []
+
+    # ── Step 3: determine the end of the lap window ───────────────────
+    next_lap = next(
+        (l for l in all_laps if l.get("lap_number") == lap_num + 1 and l.get("date_start")),
+        None,
+    )
+    if next_lap:
+        t1_str = next_lap["date_start"]
+    else:
+        try:
+            t0_dt = datetime.fromisoformat(t0_str)
+            t1_dt = t0_dt + timedelta(seconds=float(best_lap["lap_duration"]) + 2)
+            t1_str = t1_dt.isoformat()
+        except Exception:
+            t1_str = ""
+
+    # ── Step 4: fetch ONLY the narrow telemetry window ────────────────
+    sliced = await get_car_data(
+        session_key,
+        driver_number,
+        date_gte=t0_str,
+        date_lte=t1_str if t1_str else None,
+    )
+
+    return sliced
+
+
+@app.get("/api/sessions/{session_key}/car_data/{driver_number}/best_lap")
+async def car_data_best_lap(
+    session_key: int,
+    driver_number: int,
+    date_after: str | None = Query(None, description="Q segment start (ISO)"),
+    date_before: str | None = Query(None, description="Q segment end (ISO)"),
+):
+    """Single-driver best-lap telemetry (kept for backwards compat)."""
+    return await _best_lap_telemetry(session_key, driver_number, date_after, date_before)
+
 
 @app.get("/api/sessions/{session_key}/car_data/{driver_number}")
 async def car_data(session_key: int, driver_number: int):
@@ -375,11 +560,7 @@ async def location(session_key: int, driver_number: int | None = None):
 
 @app.get("/api/sessions/{session_key}/track_map")
 async def track_map(session_key: int):
-    """Return downsampled location data for every driver.
-
-    Fetches all drivers in parallel (semaphore limits concurrency).
-    Returns {outline: [{x,y},...], drivers: {driver_number: [{x,y,date},...]}}.
-    """
+    """Return downsampled location data for every driver."""
     drivers_list = await get_drivers(session_key)
     if not drivers_list:
         return {"outline": [], "drivers": {}}
@@ -387,7 +568,6 @@ async def track_map(session_key: int):
     driver_numbers = list({d["driver_number"] for d in drivers_list})
     DRIVER_TARGET = 3000
 
-    # Fetch all drivers in parallel (semaphore in _fetch handles rate limiting)
     async def fetch_one(dn: int) -> tuple[int, list[dict]]:
         try:
             raw = await get_location(session_key, dn)
@@ -397,7 +577,6 @@ async def track_map(session_key: int):
 
     results = await asyncio.gather(*(fetch_one(dn) for dn in driver_numbers))
 
-    # Process results
     outline: list[dict] = []
     drivers_data: dict[int, list[dict]] = {}
 
@@ -407,11 +586,9 @@ async def track_map(session_key: int):
 
         raw.sort(key=lambda p: p.get("date", ""))
 
-        # First driver with data → extract one full-res lap for a clean outline
         if not outline:
             try:
                 dn_laps = await get_laps(session_key, dn)
-                # Try several laps in case early ones don't exist
                 for try_lap in [3, 2, 4, 5, 1]:
                     lap_s = next(
                         (l for l in dn_laps if l.get("lap_number") == try_lap), None)
@@ -437,7 +614,6 @@ async def track_map(session_key: int):
                     if p.get("x") is not None
                 ]
 
-        # Downsample for driver tracking
         step = max(1, len(raw) // DRIVER_TARGET)
         drivers_data[dn] = [
             {"x": p["x"], "y": p["y"], "date": p["date"]}
@@ -454,7 +630,6 @@ async def track_map(session_key: int):
 async def ws_replay(websocket: WebSocket, session_key: int):
     await replay_manager.connect(websocket)
     try:
-        # Wait for client commands
         while True:
             data = await websocket.receive_text()
             msg = json.loads(data)
@@ -471,6 +646,7 @@ async def ws_replay(websocket: WebSocket, session_key: int):
     except WebSocketDisconnect:
         replay_manager.disconnect(websocket)
     except Exception as e:
+        print(f"[ws_replay] Unexpected error: {e}")
         replay_manager.disconnect(websocket)
 
 
