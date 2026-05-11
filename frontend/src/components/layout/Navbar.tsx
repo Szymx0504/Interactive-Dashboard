@@ -1,9 +1,12 @@
 import { NavLink } from "react-router-dom";
 
+// FIX: Added "Qualifying" link. The QualifyingAnalysis page existed but was
+// unreachable from the navbar — users had to navigate to it directly by URL.
 const links = [
     { to: "/", label: "Race Replay" },
     { to: "/season", label: "Season Overview" },
     { to: "/driver", label: "Driver Analysis" },
+    { to: "/qualifying", label: "Qualifying" },
     { to: "/about", label: "About" },
 ];
 

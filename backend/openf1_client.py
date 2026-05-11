@@ -58,44 +58,82 @@ async def _fetch(endpoint: str, params: dict[str, Any] | None = None, live: bool
             return cache[key]
 
         client = _get_client()
+        resp: httpx.Response | None = None
+
         for attempt in range(MAX_RETRIES):
             request_params = dict(params or {})
             if OPENF1_API_KEY and OPENF1_API_KEY_QUERY_PARAM:
                 request_params[OPENF1_API_KEY_QUERY_PARAM] = OPENF1_API_KEY
+
             resp = await client.get(f"{BASE_URL}{endpoint}", params=request_params)
+
             if resp.status_code == 429:
                 wait = RETRY_BACKOFF[min(attempt, len(RETRY_BACKOFF) - 1)]
                 print(
-                    f"[OpenF1] 429 rate-limited on {endpoint}, retrying in {wait}s (attempt {attempt+1})")
+                    f"[OpenF1] 429 rate-limited on {endpoint}, "
+                    f"retrying in {wait}s (attempt {attempt + 1})"
+                )
                 await asyncio.sleep(wait)
                 continue
+
             if resp.status_code == 401:
                 raise httpx.HTTPStatusError(
                     f"Unauthorized access to OpenF1: {resp.text}",
                     request=resp.request,
                     response=resp,
                 )
+
             resp.raise_for_status()
             data = resp.json()
             cache[key] = data
             return data
 
-    raise httpx.HTTPStatusError(
-        f"Rate-limited after {MAX_RETRIES} retries on {endpoint}",
-        request=httpx.Request("GET", f"{BASE_URL}{endpoint}"),
-        response=resp,
-    )
+        if resp is None:
+            raise httpx.HTTPStatusError(
+                f"No attempts made for {endpoint} (MAX_RETRIES=0)",
+                request=httpx.Request("GET", f"{BASE_URL}{endpoint}"),
+                response=httpx.Response(429),
+            )
+
+        raise httpx.HTTPStatusError(
+            f"Rate-limited after {MAX_RETRIES} retries on {endpoint}",
+            request=resp.request,
+            response=resp,
+        )
 
 
 # ─── Sessions ────────────────────────────────────────────────────────
 
-async def get_sessions(year: int | None = None, session_type: str | None = None) -> list[dict]:
-    params = {}
+async def get_sessions(year: int | None = None, session_type: str | None = None, session_name: str | None = None) -> list[dict]:
+    params: dict[str, Any] = {}
     if year:
         params["year"] = year
     if session_type:
         params["session_type"] = session_type
+    if session_name:
+        params["session_name"] = session_name
     return await _fetch("/sessions", params)
+
+
+async def get_qualifying_sessions(year: int) -> list[dict]:
+    """
+    Fetch all qualifying-related sessions for a year.
+
+    OpenF1 uses session_type="Qualifying" for all qualifying sessions, with
+    session_name varying by format:
+      - Standard weekends: session_name is "Qualifying" (one session),
+        OR "Q1" / "Q2" / "Q3" as separate rows (newer API versions).
+      - Sprint weekends: session_name may be "Sprint Qualifying".
+
+    We fetch by session_type="Qualifying" which covers all of the above.
+    The frontend groups them by race weekend and maps to Q1/Q2/Q3 slots.
+    """
+    results = await get_sessions(year=year, session_type="Qualifying")
+    print(f"[OpenF1] qualifying sessions for {year}: {len(results)} records")
+    if results:
+        names = list({s.get("session_name", "") for s in results})
+        print(f"[OpenF1] session_name values seen: {names}")
+    return results
 
 
 async def get_session(session_key: int) -> dict | None:
@@ -126,8 +164,7 @@ async def get_position(session_key: int, driver_number: int | None = None, fresh
         params["driver_number"] = driver_number
     data = await _fetch("/position", params, bypass_cache=fresh)
     if data and not driver_number:
-        print(
-            f"[OpenF1] Position data for session {session_key}: {len(data)} records")
+        print(f"[OpenF1] Position data for session {session_key}: {len(data)} records")
         if data:
             print(f"[OpenF1] Sample: {data[-1]}")
     return data
@@ -168,11 +205,25 @@ async def get_constructor_championship(
 async def get_car_data(
     session_key: int,
     driver_number: int,
+    date_gte: str | None = None,
+    date_lte: str | None = None,
 ) -> list[dict]:
+    """
+    Fetch car telemetry for a driver.
+
+    IMPORTANT: Always pass date_gte / date_lte when fetching qualifying
+    telemetry. Without a time window, OpenF1 returns the entire session
+    (potentially 10,000+ rows per driver) and frequently times out or
+    returns an empty response due to payload size limits.
+    """
     params: dict[str, Any] = {
         "session_key": session_key,
         "driver_number": driver_number,
     }
+    if date_gte:
+        params["date>="] = date_gte
+    if date_lte:
+        params["date<="] = date_lte
     return await _fetch("/car_data", params)
 
 
@@ -227,8 +278,7 @@ async def get_location(session_key: int, driver_number: int | None = None) -> li
 # ─── Driver lookup (cross-session) ───────────────────────────────────
 
 async def get_driver_by_number(driver_number: int) -> dict | None:
-    """Return the most recent driver record for a given number across all sessions.
-    Used to resolve mid-season replacements who won't appear in the final session."""
+    """Return the most recent driver record for a given number across all sessions."""
     data = await _fetch("/drivers", {"driver_number": driver_number})
     return data[-1] if data else None
 
