@@ -394,9 +394,10 @@ export default function PedalChart({ drivers, laps, carDataMap }: Props) {
                                     <path
                                         d={brakePath}
                                         fill="none"
-                                        stroke="#e8002d"
+                                        stroke={s.color}
                                         strokeWidth={st.swBrake}
                                         strokeLinejoin="round"
+                                        strokeDasharray="4 3"
                                         opacity={0.7}
                                     />
                                 </g>
@@ -482,7 +483,7 @@ export default function PedalChart({ drivers, laps, carDataMap }: Props) {
                                                 </span>{" "}
                                                 <span
                                                     style={{
-                                                        color: "#e8002d",
+                                                        color: pt.color,
                                                     }}
                                                 >
                                                     B{Math.round(pt.brake)}%
@@ -572,11 +573,15 @@ export default function PedalChart({ drivers, laps, carDataMap }: Props) {
                         Throttle (team)
                     </span>
                     <span className="flex items-center gap-1.5 text-[10px] text-f1-muted px-2 py-0.5">
-                        <span
-                            className="w-3 h-0.5 inline-block rounded"
-                            style={{ backgroundColor: "#e8002d" }}
-                        />
-                        Brake
+                        <svg width="12" height="4" style={{ flexShrink: 0 }}>
+                            <line
+                                x1="0" y1="2" x2="12" y2="2"
+                                stroke={series[0]?.color ?? "#888"}
+                                strokeWidth="2"
+                                strokeDasharray="4 3"
+                            />
+                        </svg>
+                        Brake (team, dashed)
                     </span>
                 </div>
             </div>
