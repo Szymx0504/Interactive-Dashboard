@@ -227,8 +227,68 @@ export default function SpeedChart({ drivers, laps, carDataMap }: Props) {
             <div className="overflow-x-auto">
                 <div
                     className="relative"
-                    style={{ width: `${zoom * 100}%`, minWidth: "100%" }}
+                    style={{
+                        display: "inline-flex",
+                        width: `${zoom * 100}%`,
+                        minWidth: "100%",
+                    }}
                 >
+                    {zoom > 1 && (
+                        <div
+                            style={{
+                                position: "sticky",
+                                left: 0,
+                                flexShrink: 0,
+                                width: `${(PAD.l / effectiveW) * 100}%`,
+                                marginRight: `-${(PAD.l / effectiveW) * 100}%`,
+                                zIndex: 10,
+                                pointerEvents: "none",
+                            }}
+                        >
+                            <svg
+                                viewBox={`0 0 ${PAD.l} ${H}`}
+                                style={{
+                                    width: "100%",
+                                    height: "100%",
+                                    display: "block",
+                                }}
+                                preserveAspectRatio="none"
+                            >
+                                <rect width={PAD.l} height={H} fill="#111214" />
+                                {yTicks.map((v) => (
+                                    <g key={v}>
+                                        <line
+                                            x1={PAD.l - 1}
+                                            x2={PAD.l}
+                                            y1={scaleY(v)}
+                                            y2={scaleY(v)}
+                                            stroke="#2d3748"
+                                            strokeWidth={0.5}
+                                        />
+                                        <text
+                                            x={PAD.l - 4}
+                                            y={scaleY(v) + 3}
+                                            fontSize={8}
+                                            fill="#6b7280"
+                                            textAnchor="end"
+                                        >
+                                            {v}
+                                        </text>
+                                    </g>
+                                ))}
+                                <text
+                                    x={PAD.l - 38}
+                                    y={(PAD.t + H - PAD.b) / 2}
+                                    fontSize={9}
+                                    fill="#6b7280"
+                                    textAnchor="middle"
+                                    transform={`rotate(-90,${PAD.l - 38},${(PAD.t + H - PAD.b) / 2})`}
+                                >
+                                    Speed (km/h)
+                                </text>
+                            </svg>
+                        </div>
+                    )}
                     <svg
                         ref={svgRef}
                         viewBox={`0 0 ${effectiveW} ${H}`}

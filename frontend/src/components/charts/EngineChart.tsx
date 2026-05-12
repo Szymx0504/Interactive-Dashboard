@@ -271,8 +271,70 @@ export default function EngineChart({ drivers, laps, carDataMap }: Props) {
             <div className="overflow-x-auto">
                 <div
                     className="relative"
-                    style={{ width: `${zoom * 100}%`, minWidth: "100%" }}
+                    style={{
+                        display: "inline-flex",
+                        width: `${zoom * 100}%`,
+                        minWidth: "100%",
+                    }}
                 >
+                    {zoom > 1 && (
+                        <div
+                            style={{
+                                position: "sticky",
+                                left: 0,
+                                flexShrink: 0,
+                                width: `${(PAD.l / effectiveW) * 100}%`,
+                                marginRight: `-${(PAD.l / effectiveW) * 100}%`,
+                                zIndex: 10,
+                                pointerEvents: "none",
+                            }}
+                        >
+                            <svg
+                                viewBox={`0 0 ${PAD.l} ${H}`}
+                                style={{
+                                    width: "100%",
+                                    height: "100%",
+                                    display: "block",
+                                }}
+                                preserveAspectRatio="none"
+                            >
+                                <rect width={PAD.l} height={H} fill="#111214" />
+                                {[0, 5000, 10000, 15000]
+                                    .filter((v) => v <= maxRpm)
+                                    .map((v) => (
+                                        <g key={v}>
+                                            <line
+                                                x1={PAD.l - 1}
+                                                x2={PAD.l}
+                                                y1={scaleRpm(v)}
+                                                y2={scaleRpm(v)}
+                                                stroke="#2d3748"
+                                                strokeWidth={0.5}
+                                            />
+                                            <text
+                                                x={PAD.l - 4}
+                                                y={scaleRpm(v) + 3}
+                                                fontSize={8}
+                                                fill="#6b7280"
+                                                textAnchor="end"
+                                            >
+                                                {v / 1000}k
+                                            </text>
+                                        </g>
+                                    ))}
+                                <text
+                                    x={PAD.l - 38}
+                                    y={(PAD.t + H - PAD.b) / 2}
+                                    fontSize={9}
+                                    fill="#6b7280"
+                                    textAnchor="middle"
+                                    transform={`rotate(-90,${PAD.l - 38},${(PAD.t + H - PAD.b) / 2})`}
+                                >
+                                    RPM
+                                </text>
+                            </svg>
+                        </div>
+                    )}
                     <svg
                         ref={svgRef}
                         viewBox={`0 0 ${effectiveW} ${H}`}
@@ -464,7 +526,7 @@ export default function EngineChart({ drivers, laps, carDataMap }: Props) {
                                 className="rounded-lg border border-f1-border p-3 text-white shadow-2xl"
                                 style={{
                                     backgroundColor: "#111214",
-                                    minWidth: 160,
+                                    minWidth: 140,
                                 }}
                             >
                                 <div className="mb-2 text-[11px] font-semibold uppercase tracking-widest text-f1-muted">
@@ -506,6 +568,62 @@ export default function EngineChart({ drivers, laps, carDataMap }: Props) {
                                     ))}
                                 </div>
                             </div>
+                        </div>
+                    )}
+                    {zoom > 1 && (
+                        <div
+                            style={{
+                                position: "sticky",
+                                right: 0,
+                                flexShrink: 0,
+                                width: `${(PAD.r / effectiveW) * 100}%`,
+                                marginLeft: `-${(PAD.r / effectiveW) * 100}%`,
+                                zIndex: 10,
+                                pointerEvents: "none",
+                            }}
+                        >
+                            <svg
+                                viewBox={`0 0 ${PAD.r} ${H}`}
+                                style={{
+                                    width: "100%",
+                                    height: "100%",
+                                    display: "block",
+                                }}
+                                preserveAspectRatio="none"
+                            >
+                                <rect width={PAD.r} height={H} fill="#111214" />
+                                {[1, 2, 3, 4, 5, 6, 7, 8].map((g) => (
+                                    <g key={g}>
+                                        <line
+                                            x1={0}
+                                            x2={1}
+                                            y1={scaleGear(g)}
+                                            y2={scaleGear(g)}
+                                            stroke="#2d3748"
+                                            strokeWidth={0.5}
+                                        />
+                                        <text
+                                            x={4}
+                                            y={scaleGear(g) + 3}
+                                            fontSize={8}
+                                            fill="#6b7280"
+                                            textAnchor="start"
+                                        >
+                                            {g}
+                                        </text>
+                                    </g>
+                                ))}
+                                <text
+                                    x={36}
+                                    y={(PAD.t + H - PAD.b) / 2}
+                                    fontSize={9}
+                                    fill="#6b7280"
+                                    textAnchor="middle"
+                                    transform={`rotate(90,36,${(PAD.t + H - PAD.b) / 2})`}
+                                >
+                                    Gear
+                                </text>
+                            </svg>
                         </div>
                     )}
                 </div>
