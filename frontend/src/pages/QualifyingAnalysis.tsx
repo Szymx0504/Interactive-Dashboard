@@ -471,6 +471,7 @@ export default function QualifyingAnalysis() {
                         ) : (
                             <EngineChart
                                 drivers={uniqueDrivers}
+                                laps={laps}
                                 carDataMap={carDataMap}
                             />
                         )}
@@ -487,6 +488,7 @@ export default function QualifyingAnalysis() {
                         ) : (
                             <PedalChart
                                 drivers={uniqueDrivers}
+                                laps={laps}
                                 carDataMap={carDataMap}
                             />
                         )}

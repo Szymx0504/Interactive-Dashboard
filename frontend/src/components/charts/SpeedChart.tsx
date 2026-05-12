@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, useRef } from "react";
 import type { Driver } from "../../types";
 import type { QualLap, QualCarData } from "../../lib/api";
 import { bestLapsByDriver } from "../../lib/api";
@@ -55,6 +55,24 @@ function distLabel(m: number): string {
     return m >= 1000 ? `${(m / 1000).toFixed(1)}km` : `${Math.round(m)}m`;
 }
 
+function findNearestIndex(distances: number[], target: number): number {
+    if (!distances.length) return 0;
+    let lo = 0,
+        hi = distances.length - 1;
+    while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (distances[mid] < target) lo = mid + 1;
+        else hi = mid;
+    }
+    if (
+        lo > 0 &&
+        Math.abs(distances[lo - 1] - target) < Math.abs(distances[lo] - target)
+    ) {
+        return lo - 1;
+    }
+    return lo;
+}
+
 /* ── Constants ──────────────────────────────────────────────────────── */
 
 const W = 600,
@@ -78,6 +96,10 @@ export default function SpeedChart({ drivers, laps, carDataMap }: Props) {
         });
     }, []);
     const clearFocus = useCallback(() => setFocusedDrivers(new Set()), []);
+
+    const svgRef = useRef<SVGSVGElement>(null);
+    const [hoverDist, setHoverDist] = useState<number | null>(null);
+    const [zoom, setZoom] = useState(1);
 
     const series = useMemo(() => {
         const best = bestLapsByDriver(laps);
@@ -113,11 +135,13 @@ export default function SpeedChart({ drivers, laps, carDataMap }: Props) {
         100,
     );
     const maxSpeed = Math.max(...series.flatMap((s) => s.speeds), 350);
-    const scaleX = (d: number) => PAD.l + (d / maxDist) * (W - PAD.l - PAD.r);
+    const effectiveW = W * zoom;
+    const scaleX = (d: number) =>
+        PAD.l + (d / maxDist) * (effectiveW - PAD.l - PAD.r);
     const scaleY = (v: number) =>
         PAD.t + (1 - v / maxSpeed) * (H - PAD.t - PAD.b);
 
-    const tickInt =
+    const baseTickInt =
         maxDist > 5000
             ? 1000
             : maxDist > 2000
@@ -125,6 +149,7 @@ export default function SpeedChart({ drivers, laps, carDataMap }: Props) {
               : maxDist > 800
                 ? 200
                 : 100;
+    const tickInt = baseTickInt / Math.min(zoom, 4);
     const xTicks: number[] = [];
     for (let d = 0; d <= maxDist; d += tickInt) xTicks.push(d);
     const yTicks = [0, 100, 200, 300].filter((v) => v <= maxSpeed);
@@ -136,115 +161,256 @@ export default function SpeedChart({ drivers, laps, carDataMap }: Props) {
             : { opacity: 0.08, sw: 0.7 };
     };
 
+    const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
+        const svg = svgRef.current;
+        if (!svg) return;
+        const rect = svg.getBoundingClientRect();
+        const mouseX = ((e.clientX - rect.left) / rect.width) * effectiveW;
+        const dist =
+            ((mouseX - PAD.l) / (effectiveW - PAD.l - PAD.r)) * maxDist;
+        if (dist >= 0 && dist <= maxDist) setHoverDist(dist);
+        else setHoverDist(null);
+    };
+    const handleMouseLeave = () => setHoverDist(null);
+
+    const hoverX = hoverDist !== null ? scaleX(hoverDist) : null;
+    const hoverPoints =
+        hoverDist !== null
+            ? series
+                  .filter((s) => !hasFocus || focusedDrivers.has(s.num))
+                  .map((s) => {
+                      const idx = findNearestIndex(s.distances, hoverDist);
+                      return {
+                          name: s.name,
+                          color: s.color,
+                          speed: s.speeds[idx],
+                          x: scaleX(s.distances[idx]),
+                          y: scaleY(s.speeds[idx]),
+                      };
+                  })
+                  .sort((a, b) => b.speed - a.speed)
+            : [];
+    const tooltipLeftPct = hoverX !== null ? (hoverX / effectiveW) * 100 : 0;
+    const tooltipFlip = tooltipLeftPct > 70;
+
     return (
         <div>
-            {hasFocus && (
-                <div className="flex justify-end mb-2">
+            <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-1">
+                    <span className="text-[10px] text-f1-muted mr-1">Zoom</span>
+                    {[1, 2, 4, 8].map((z) => (
+                        <button
+                            key={z}
+                            onClick={() => setZoom(z)}
+                            className="text-[10px] px-1.5 py-0.5 rounded border transition-colors"
+                            style={{
+                                borderColor: zoom === z ? "#6b7280" : "#2d3748",
+                                color: zoom === z ? "#fff" : "#6b7280",
+                                backgroundColor:
+                                    zoom === z ? "#374151" : "transparent",
+                            }}
+                        >
+                            {z}x
+                        </button>
+                    ))}
+                </div>
+                {hasFocus && (
                     <button
                         onClick={clearFocus}
                         className="text-[10px] text-f1-muted hover:text-white transition-colors px-2 py-0.5 rounded border border-f1-border hover:border-f1-border/70"
                     >
                         Clear focus
                     </button>
-                </div>
-            )}
+                )}
+            </div>
 
-            <svg
-                viewBox={`0 0 ${W} ${H}`}
-                className="w-full"
-                preserveAspectRatio="xMidYMid meet"
-            >
-                {/* Y grid */}
-                {yTicks.map((v) => (
-                    <g key={v}>
-                        <line
-                            x1={PAD.l}
-                            x2={W - PAD.r}
-                            y1={scaleY(v)}
-                            y2={scaleY(v)}
-                            stroke="#2d3748"
-                            strokeWidth={0.5}
-                        />
+            <div className="overflow-x-auto">
+                <div
+                    className="relative"
+                    style={{ width: `${zoom * 100}%`, minWidth: "100%" }}
+                >
+                    <svg
+                        ref={svgRef}
+                        viewBox={`0 0 ${effectiveW} ${H}`}
+                        style={{ width: "100%" }}
+                        preserveAspectRatio="xMidYMid meet"
+                        onMouseMove={handleMouseMove}
+                        onMouseLeave={handleMouseLeave}
+                    >
+                        {/* Y grid */}
+                        {yTicks.map((v) => (
+                            <g key={v}>
+                                <line
+                                    x1={PAD.l}
+                                    x2={effectiveW - PAD.r}
+                                    y1={scaleY(v)}
+                                    y2={scaleY(v)}
+                                    stroke="#2d3748"
+                                    strokeWidth={0.5}
+                                />
+                                <text
+                                    x={PAD.l - 4}
+                                    y={scaleY(v) + 3}
+                                    fontSize={8}
+                                    fill="#6b7280"
+                                    textAnchor="end"
+                                >
+                                    {v}
+                                </text>
+                            </g>
+                        ))}
+                        {/* X grid + distance labels */}
+                        {xTicks.map((d) => (
+                            <g key={d}>
+                                <line
+                                    x1={scaleX(d)}
+                                    x2={scaleX(d)}
+                                    y1={PAD.t}
+                                    y2={H - PAD.b}
+                                    stroke="#2d3748"
+                                    strokeWidth={0.5}
+                                />
+                                <text
+                                    x={scaleX(d)}
+                                    y={H - PAD.b + 12}
+                                    fontSize={8}
+                                    fill="#6b7280"
+                                    textAnchor="middle"
+                                >
+                                    {distLabel(d)}
+                                </text>
+                            </g>
+                        ))}
+                        {/* Axis labels */}
                         <text
-                            x={PAD.l - 4}
-                            y={scaleY(v) + 3}
-                            fontSize={8}
+                            x={PAD.l - 38}
+                            y={(PAD.t + H - PAD.b) / 2}
+                            fontSize={9}
                             fill="#6b7280"
-                            textAnchor="end"
+                            textAnchor="middle"
+                            transform={`rotate(-90,${PAD.l - 38},${(PAD.t + H - PAD.b) / 2})`}
                         >
-                            {v}
+                            Speed (km/h)
                         </text>
-                    </g>
-                ))}
-                {/* X grid + distance labels */}
-                {xTicks.map((d) => (
-                    <g key={d}>
-                        <line
-                            x1={scaleX(d)}
-                            x2={scaleX(d)}
-                            y1={PAD.t}
-                            y2={H - PAD.b}
-                            stroke="#2d3748"
-                            strokeWidth={0.5}
-                        />
                         <text
-                            x={scaleX(d)}
-                            y={H - PAD.b + 12}
-                            fontSize={8}
+                            x={(PAD.l + effectiveW - PAD.r) / 2}
+                            y={H - 2}
+                            fontSize={9}
                             fill="#6b7280"
                             textAnchor="middle"
                         >
-                            {distLabel(d)}
+                            Lap Distance
                         </text>
-                    </g>
-                ))}
-                {/* Axis labels */}
-                <text
-                    x={PAD.l - 38}
-                    y={(PAD.t + H - PAD.b) / 2}
-                    fontSize={9}
-                    fill="#6b7280"
-                    textAnchor="middle"
-                    transform={`rotate(-90,${PAD.l - 38},${(PAD.t + H - PAD.b) / 2})`}
-                >
-                    Speed (km/h)
-                </text>
-                <text
-                    x={(PAD.l + W - PAD.r) / 2}
-                    y={H - 2}
-                    fontSize={9}
-                    fill="#6b7280"
-                    textAnchor="middle"
-                >
-                    Lap Distance
-                </text>
-                {/* Data paths */}
-                {series.map((s) => {
-                    const st = getStyle(s.num);
-                    const path = s.speeds
-                        .map(
-                            (v, i) =>
-                                `${i === 0 ? "M" : "L"}${scaleX(s.distances[i]).toFixed(1)},${scaleY(v).toFixed(1)}`,
-                        )
-                        .join(" ");
-                    return (
-                        <path
-                            key={s.num}
-                            d={path}
-                            fill="none"
-                            stroke={s.color}
-                            strokeWidth={st.sw}
-                            opacity={st.opacity}
-                            strokeLinejoin="round"
+                        {/* Data paths */}
+                        {series.map((s) => {
+                            const st = getStyle(s.num);
+                            const path = s.speeds
+                                .map(
+                                    (v, i) =>
+                                        `${i === 0 ? "M" : "L"}${scaleX(s.distances[i]).toFixed(1)},${scaleY(v).toFixed(1)}`,
+                                )
+                                .join(" ");
+                            return (
+                                <path
+                                    key={s.num}
+                                    d={path}
+                                    fill="none"
+                                    stroke={s.color}
+                                    strokeWidth={st.sw}
+                                    opacity={st.opacity}
+                                    strokeLinejoin="round"
+                                    style={{
+                                        cursor: "pointer",
+                                        transition: "opacity 0.15s",
+                                    }}
+                                    onClick={() => toggleDriver(s.num)}
+                                />
+                            );
+                        })}
+                        {/* Hover cursor line */}
+                        {hoverX !== null && (
+                            <line
+                                x1={hoverX}
+                                x2={hoverX}
+                                y1={PAD.t}
+                                y2={H - PAD.b}
+                                stroke="#6b7280"
+                                strokeWidth={0.5}
+                                strokeDasharray="5 5"
+                                pointerEvents="none"
+                            />
+                        )}
+                        {hoverPoints.map((pt) => (
+                            <circle
+                                key={pt.name}
+                                cx={pt.x}
+                                cy={pt.y}
+                                r={3}
+                                fill={pt.color}
+                                stroke="#fff"
+                                strokeWidth={1}
+                                pointerEvents="none"
+                            />
+                        ))}
+                    </svg>
+                    {hoverDist !== null && hoverPoints.length > 0 && (
+                        <div
+                            className="absolute top-0 pointer-events-none"
                             style={{
-                                cursor: "pointer",
-                                transition: "opacity 0.15s",
+                                left: tooltipFlip
+                                    ? undefined
+                                    : `${tooltipLeftPct}%`,
+                                right: tooltipFlip
+                                    ? `${100 - tooltipLeftPct}%`
+                                    : undefined,
+                                transform: tooltipFlip
+                                    ? "translateX(-8px)"
+                                    : "translateX(8px)",
+                                zIndex: 10,
                             }}
-                            onClick={() => toggleDriver(s.num)}
-                        />
-                    );
-                })}
-            </svg>
+                        >
+                            <div
+                                className="rounded-lg border border-f1-border p-3 text-white shadow-2xl"
+                                style={{
+                                    backgroundColor: "#111214",
+                                    minWidth: 140,
+                                }}
+                            >
+                                <div className="mb-2 text-[11px] font-semibold uppercase tracking-widest text-f1-muted">
+                                    {distLabel(hoverDist)}
+                                </div>
+                                <div className="space-y-[3px]">
+                                    {hoverPoints.map((pt) => (
+                                        <div
+                                            key={pt.name}
+                                            className="flex items-center justify-between gap-4"
+                                        >
+                                            <div className="flex items-center gap-1.5">
+                                                <span
+                                                    className="inline-block h-2 w-2 rounded-full flex-shrink-0"
+                                                    style={{
+                                                        backgroundColor:
+                                                            pt.color,
+                                                    }}
+                                                />
+                                                <span className="text-[11px] font-bold tracking-wide">
+                                                    {pt.name}
+                                                </span>
+                                            </div>
+                                            <span
+                                                className="text-[11px] font-mono font-bold"
+                                                style={{ color: pt.color }}
+                                            >
+                                                {Math.round(pt.speed)} km/h
+                                            </span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            </div>
 
             {/* Team-grouped legend (matches PositionChart) */}
             <div
