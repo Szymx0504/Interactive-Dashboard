@@ -32,6 +32,7 @@ from openf1_client import (
     get_driver_by_number,
 )
 from ws_manager import replay_manager
+from db import queries as db
 
 app = FastAPI(title="F1 Analyzer API", version="1.0.0")
 
@@ -561,67 +562,25 @@ async def location(session_key: int, driver_number: int | None = None):
 @app.get("/api/sessions/{session_key}/track_map")
 async def track_map(session_key: int):
     """Return downsampled location data for every driver."""
-    drivers_list = await get_drivers(session_key)
-    if not drivers_list:
-        return {"outline": [], "drivers": {}}
+    # Check DB cache first
+    cached_data = await db.get_track_map(session_key)
+    if cached_data:
+        print(f"[track_map] Cache hit for session {session_key}")
+        return cached_data
 
-    driver_numbers = list({d["driver_number"] for d in drivers_list})
-    DRIVER_TARGET = 3000
+    print(f"[track_map] Cache miss for session {session_key}, computing...")
+    
+    from openf1_client import get_processed_track_map
+    result_data = await get_processed_track_map(session_key)
+    
+    # Store in DB cache
+    try:
+        await db.insert_track_map(session_key, result_data)
+        print(f"[track_map] Cached result for session {session_key}")
+    except Exception as e:
+        print(f"[track_map] Failed to cache result for session {session_key}: {e}")
 
-    async def fetch_one(dn: int) -> tuple[int, list[dict]]:
-        try:
-            raw = await get_location(session_key, dn)
-            return dn, raw or []
-        except Exception:
-            return dn, []
-
-    results = await asyncio.gather(*(fetch_one(dn) for dn in driver_numbers))
-
-    outline: list[dict] = []
-    drivers_data: dict[int, list[dict]] = {}
-
-    for dn, raw in results:
-        if not raw:
-            continue
-
-        raw.sort(key=lambda p: p.get("date", ""))
-
-        if not outline:
-            try:
-                dn_laps = await get_laps(session_key, dn)
-                for try_lap in [3, 2, 4, 5, 1]:
-                    lap_s = next(
-                        (l for l in dn_laps if l.get("lap_number") == try_lap), None)
-                    lap_e = next(
-                        (l for l in dn_laps if l.get("lap_number") == try_lap + 1), None)
-                    if lap_s and lap_e:
-                        t0, t1 = lap_s["date_start"], lap_e["date_start"]
-                        candidate = [
-                            {"x": p["x"], "y": p["y"]}
-                            for p in raw
-                            if t0 <= p.get("date", "") <= t1 and p.get("x") is not None
-                        ]
-                        if len(candidate) > 20:
-                            outline = candidate
-                            break
-            except Exception:
-                pass
-            if not outline:
-                step = max(1, len(raw) // 2000)
-                outline = [
-                    {"x": p["x"], "y": p["y"]}
-                    for p in raw[::step]
-                    if p.get("x") is not None
-                ]
-
-        step = max(1, len(raw) // DRIVER_TARGET)
-        drivers_data[dn] = [
-            {"x": p["x"], "y": p["y"], "date": p["date"]}
-            for p in raw[::step]
-            if p.get("x") is not None
-        ]
-
-    return {"outline": outline, "drivers": drivers_data}
+    return result_data
 
 
 # ─── WebSocket: Race Replay ─────────────────────────────────────────

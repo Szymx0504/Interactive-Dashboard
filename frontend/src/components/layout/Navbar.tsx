@@ -1,7 +1,5 @@
-import { NavLink } from "react-router-dom";
+import { NavLink, useSearchParams } from "react-router-dom";
 
-// FIX: Added "Qualifying" link. The QualifyingAnalysis page existed but was
-// unreachable from the navbar — users had to navigate to it directly by URL.
 const links = [
     { to: "/", label: "Race Replay" },
     { to: "/season", label: "Season Overview" },
@@ -11,9 +9,22 @@ const links = [
 ];
 
 export default function Navbar() {
+    const [searchParams] = useSearchParams();
+
+    // Carry year + session params across page navigations
+    const carryParams = (basePath: string) => {
+        const carried = new URLSearchParams();
+        const year = searchParams.get("year");
+        const session = searchParams.get("session");
+        if (year) carried.set("year", year);
+        if (session) carried.set("session", session);
+        const qs = carried.toString();
+        return qs ? `${basePath}?${qs}` : basePath;
+    };
+
     return (
         <nav className="navbar-f1 border-b border-f1-border px-6 py-4 flex items-center gap-10">
-            <NavLink to="/" className="navbar-brand flex items-center gap-3">
+            <NavLink to={carryParams("/")} className="navbar-brand flex items-center gap-3">
                 <img
                     src="/images/F1.png"
                     alt="Formula 1 logo"
@@ -28,7 +39,7 @@ export default function Navbar() {
                 {links.map(({ to, label }) => (
                     <NavLink
                         key={to}
-                        to={to}
+                        to={carryParams(to)}
                         className={({ isActive }) =>
                             `navbar-link ${isActive ? "active" : "inactive"}`
                         }

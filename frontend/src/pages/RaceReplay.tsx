@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { api } from "../lib/api";
 import { useApi } from "../hooks/useApi";
+import { useRaceSelector } from "../hooks/useRaceSelector";
 import type { FullRaceData, Position, Lap } from "../types";
 import PositionChart from "../components/charts/PositionChart";
 import LapTimesChart from "../components/charts/LapTimesChart";
@@ -10,22 +11,17 @@ import WeatherPanel from "../components/charts/WeatherPanel";
 import RaceEventsFeed from "../components/charts/RaceEventsFeed";
 import TrackMap from "../components/charts/TrackMap";
 import ReplayControls from "../components/replay/ReplayControls";
+import RaceSelector from "../components/shared/RaceSelector";
 
 export default function RaceReplay() {
-    const [year, setYear] = useState(2024);
-    const [sessionKey, setSessionKey] = useState<number | null>(null);
+    const selector = useRaceSelector("Race");
+    const { sessionKey } = selector;
     const [selectedDriver, setSelectedDriver] = useState<number | null>(null);
     const [currentLap, setCurrentLap] = useState(1);
     const [isPlaying, setIsPlaying] = useState(false);
     const [speed, setSpeed] = useState(1);
     const [raceData, setRaceData] = useState<FullRaceData | null>(null);
     const [loadingData, setLoadingData] = useState(false);
-
-    // Fetch race sessions for the year
-    const { data: sessions } = useApi(
-        () => api.getSessions(year, "Race"),
-        [year],
-    );
 
     // Fetch drivers for selected session
     const { data: drivers } = useApi(
@@ -165,37 +161,7 @@ export default function RaceReplay() {
     return (
         <div className="space-y-6">
             {/* Header controls */}
-            <div className="flex flex-wrap items-center gap-4">
-                <h1 className="text-2xl font-bold">Race Replay</h1>
-
-                <select
-                    value={year}
-                    onChange={(e) => {
-                        setYear(Number(e.target.value));
-                        setSessionKey(null);
-                    }}
-                    className="bg-f1-card border border-f1-border rounded-lg px-3 py-2 text-sm"
-                >
-                    {[2025, 2024, 2023].map((y) => (
-                        <option key={y} value={y}>
-                            {y}
-                        </option>
-                    ))}
-                </select>
-
-                <select
-                    value={sessionKey ?? ""}
-                    onChange={(e) => setSessionKey(Number(e.target.value))}
-                    className="bg-f1-card border border-f1-border rounded-lg px-3 py-2 text-sm min-w-[200px]"
-                >
-                    <option value="">Select Race...</option>
-                    {sessions?.map((s) => (
-                        <option key={s.session_key} value={s.session_key}>
-                            {s.circuit_short_name} — {s.country_name}
-                        </option>
-                    ))}
-                </select>
-
+            <RaceSelector title="Race Replay" {...selector}>
                 {uniqueDrivers.length > 0 && (
                     <select
                         value={selectedDriver ?? ""}
@@ -217,7 +183,7 @@ export default function RaceReplay() {
                         ))}
                     </select>
                 )}
-            </div>
+            </RaceSelector>
 
             {/* Replay controls */}
             {raceData && (
