@@ -163,7 +163,7 @@ async def get_championship_drivers(session_key: int, driver_number: int | None =
             session_key, driver_number,
         )
     return await _fetch_rows(
-        "SELECT * FROM championship_drivers WHERE session_key=$1 ORDER BY position",
+        "SELECT * FROM championship_drivers WHERE session_key=$1 ORDER BY position_current",
         session_key,
     )
 
@@ -172,15 +172,14 @@ async def insert_championship_drivers(session_key: int, rows: list[dict]) -> Non
     if not rows:
         return
     await _executemany(
-        """INSERT INTO championship_drivers (session_key, driver_number, position,
-           points, wins, full_name, name_acronym, broadcast_name, team_name, team_colour)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT DO NOTHING""",
+        """INSERT INTO championship_drivers (session_key, meeting_key, driver_number,
+           position_start, position_current, points_start, points_current)
+           VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING""",
         [
             (
-                session_key, r.get("driver_number"), r.get("position"),
-                r.get("points"), r.get("wins"), r.get("full_name"),
-                r.get("name_acronym"), r.get("broadcast_name"),
-                r.get("team_name"), r.get("team_colour"),
+                session_key, r.get("meeting_key"), r.get("driver_number"),
+                r.get("position_start"), r.get("position_current"),
+                r.get("points_start"), r.get("points_current"),
             )
             for r in rows
         ],
@@ -196,7 +195,7 @@ async def get_championship_teams(session_key: int, team_name: str | None = None)
             session_key, team_name,
         )
     return await _fetch_rows(
-        "SELECT * FROM championship_teams WHERE session_key=$1 ORDER BY position",
+        "SELECT * FROM championship_teams WHERE session_key=$1 ORDER BY position_current",
         session_key,
     )
 
@@ -205,13 +204,14 @@ async def insert_championship_teams(session_key: int, rows: list[dict]) -> None:
     if not rows:
         return
     await _executemany(
-        """INSERT INTO championship_teams (session_key, team_name, position,
-           points, wins, team_colour)
-           VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING""",
+        """INSERT INTO championship_teams (session_key, meeting_key, team_name,
+           position_start, position_current, points_start, points_current)
+           VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING""",
         [
             (
-                session_key, r.get("team_name"), r.get("position"),
-                r.get("points"), r.get("wins"), r.get("team_colour"),
+                session_key, r.get("meeting_key"), r.get("team_name"),
+                r.get("position_start"), r.get("position_current"),
+                r.get("points_start"), r.get("points_current"),
             )
             for r in rows
         ],
