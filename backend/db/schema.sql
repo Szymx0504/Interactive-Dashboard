@@ -55,27 +55,25 @@ CREATE TABLE IF NOT EXISTS session_results (
 
 -- 4. Driver championship standings (per race, ~20 rows)
 CREATE TABLE IF NOT EXISTS championship_drivers (
-    session_key     INTEGER NOT NULL,
-    driver_number   INTEGER NOT NULL,
-    position        INTEGER,
-    points          DOUBLE PRECISION,
-    wins            INTEGER,
-    full_name       TEXT,
-    name_acronym    TEXT,
-    broadcast_name  TEXT,
-    team_name       TEXT,
-    team_colour     TEXT,
+    session_key       INTEGER NOT NULL,
+    meeting_key       INTEGER,
+    driver_number     INTEGER NOT NULL,
+    position_start    INTEGER,
+    position_current  INTEGER,
+    points_start      DOUBLE PRECISION,
+    points_current    DOUBLE PRECISION,
     PRIMARY KEY (session_key, driver_number)
 );
 
 -- 5. Constructor championship standings (per race, ~10 rows)
 CREATE TABLE IF NOT EXISTS championship_teams (
-    session_key     INTEGER NOT NULL,
-    team_name       TEXT NOT NULL,
-    position        INTEGER,
-    points          DOUBLE PRECISION,
-    wins            INTEGER,
-    team_colour     TEXT,
+    session_key       INTEGER NOT NULL,
+    meeting_key       INTEGER,
+    team_name         TEXT NOT NULL,
+    position_start    INTEGER,
+    position_current  INTEGER,
+    points_start      DOUBLE PRECISION,
+    points_current    DOUBLE PRECISION,
     PRIMARY KEY (session_key, team_name)
 );
 
