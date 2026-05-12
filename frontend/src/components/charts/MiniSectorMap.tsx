@@ -241,7 +241,32 @@ export default function MiniSectorMap({
         // Convert outline to canvas coords
         const canvasPts = outline.map((p) => toCanvas(p.x, p.y, bounds));
 
+        // Helper: interpolate a canvas point at a given arc distance
+        function interpAtArc(targetArc: number): { px: number; py: number } {
+            if (targetArc <= arcs[0]) return canvasPts[0];
+            if (targetArc >= arcs[arcs.length - 1])
+                return canvasPts[canvasPts.length - 1];
+            for (let j = 1; j < arcs.length; j++) {
+                if (arcs[j] >= targetArc) {
+                    const frac =
+                        (targetArc - arcs[j - 1]) /
+                        (arcs[j] - arcs[j - 1] || 1);
+                    return {
+                        px:
+                            canvasPts[j - 1].px +
+                            (canvasPts[j].px - canvasPts[j - 1].px) * frac,
+                        py:
+                            canvasPts[j - 1].py +
+                            (canvasPts[j].py - canvasPts[j - 1].py) * frac,
+                    };
+                }
+            }
+            return canvasPts[canvasPts.length - 1];
+        }
+
         // Split outline into NUM_MINI segments
+        // Each segment starts exactly where the previous ended (interpolated),
+        // so there are no gaps or overlaps between adjacent segments.
         const segments: {
             points: { px: number; py: number }[];
             color: string;
@@ -252,37 +277,25 @@ export default function MiniSectorMap({
             const arcEnd = ((i + 1) / NUM_MINI) * totalArc;
             const color = miniSectorData.results[i]?.color ?? "#333";
 
-            const segPts: { px: number; py: number }[] = [];
+            // Begin with the interpolated start point.
+            // For the very first segment, pin to canvasPts[0] exactly so it
+            // matches where the last segment closes, eliminating the overlap.
+            const startPt = i === 0 ? canvasPts[0] : interpAtArc(arcStart);
+            const segPts: { px: number; py: number }[] = [startPt];
 
+            // Add all outline vertices that fall strictly inside this segment
             for (let j = 0; j < outline.length; j++) {
-                if (arcs[j] >= arcStart && arcs[j] <= arcEnd) {
+                if (arcs[j] > arcStart && arcs[j] < arcEnd) {
                     segPts.push(canvasPts[j]);
                 }
             }
 
-            // Interpolate start point if needed
-            if (
-                segPts.length === 0 ||
-                (segPts.length > 0 && arcs[0] > arcStart)
-            ) {
-                // Find surrounding points for arcStart
-                for (let j = 1; j < arcs.length; j++) {
-                    if (arcs[j] >= arcStart) {
-                        const frac =
-                            (arcStart - arcs[j - 1]) /
-                            (arcs[j] - arcs[j - 1] || 1);
-                        segPts.unshift({
-                            px:
-                                canvasPts[j - 1].px +
-                                (canvasPts[j].px - canvasPts[j - 1].px) * frac,
-                            py:
-                                canvasPts[j - 1].py +
-                                (canvasPts[j].py - canvasPts[j - 1].py) * frac,
-                        });
-                        break;
-                    }
-                }
-            }
+            // End with the interpolated end point (exact match for next segment's start).
+            // For the very last segment, snap to canvasPts[0] so the loop closes
+            // perfectly and there is no overlap bleed at the start/finish line.
+            const endPt =
+                i === NUM_MINI - 1 ? canvasPts[0] : interpAtArc(arcEnd);
+            segPts.push(endPt);
 
             segments.push({ points: segPts, color });
         }
