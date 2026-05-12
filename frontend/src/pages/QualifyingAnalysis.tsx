@@ -436,6 +436,8 @@ export default function QualifyingAnalysis() {
                             <MiniSectorMap
                                 drivers={uniqueDrivers}
                                 laps={laps}
+                                carDataMap={carDataMap}
+                                sessionKey={selectedSessionKey!}
                                 focusDriver={focusDriver}
                                 onFocusDriver={setFocusDriver}
                             />
