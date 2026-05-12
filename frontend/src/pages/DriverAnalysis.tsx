@@ -1,17 +1,17 @@
 import { useState, useMemo } from 'react';
 import { api } from '../lib/api';
 import { useApi } from '../hooks/useApi';
+import { useRaceSelector } from '../hooks/useRaceSelector';
 import LapTimesChart from '../components/charts/LapTimesChart';
 import TireStrategy from '../components/charts/TireStrategy';
 import SpeedTrace from '../components/charts/SpeedTrace';
 import SectorHeatmap from '../components/charts/SectorHeatmap';
+import RaceSelector from '../components/shared/RaceSelector';
 
 export default function DriverAnalysis() {
-  const [year, setYear] = useState(2024);
-  const [sessionKey, setSessionKey] = useState<number | null>(null);
+  const selector = useRaceSelector('Race');
+  const { sessionKey } = selector;
   const [driverNumber, setDriverNumber] = useState<number | null>(null);
-
-  const { data: sessions } = useApi(() => api.getSessions(year, 'Race'), [year]);
 
   const { data: drivers } = useApi(
     () => (sessionKey ? api.getDrivers(sessionKey) : Promise.resolve([])),
@@ -46,32 +46,7 @@ export default function DriverAnalysis() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center gap-4">
-        <h1 className="text-2xl font-bold">Driver Analysis</h1>
-
-        <select
-          value={year}
-          onChange={e => { setYear(Number(e.target.value)); setSessionKey(null); setDriverNumber(null); }}
-          className="bg-f1-card border border-f1-border rounded-lg px-3 py-2 text-sm"
-        >
-          {[2025, 2024, 2023].map(y => (
-            <option key={y} value={y}>{y}</option>
-          ))}
-        </select>
-
-        <select
-          value={sessionKey ?? ''}
-          onChange={e => { setSessionKey(Number(e.target.value)); setDriverNumber(null); }}
-          className="bg-f1-card border border-f1-border rounded-lg px-3 py-2 text-sm min-w-[200px]"
-        >
-          <option value="">Select Race...</option>
-          {sessions?.map(s => (
-            <option key={s.session_key} value={s.session_key}>
-              {s.circuit_short_name} — {s.country_name}
-            </option>
-          ))}
-        </select>
-
+      <RaceSelector title="Driver Analysis" {...selector}>
         {uniqueDrivers.length > 0 && (
           <select
             value={driverNumber ?? ''}
@@ -86,7 +61,7 @@ export default function DriverAnalysis() {
             ))}
           </select>
         )}
-      </div>
+      </RaceSelector>
 
       {/* Driver info card */}
       {selectedDriver && (

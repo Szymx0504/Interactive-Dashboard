@@ -1,5 +1,6 @@
 """
 OpenF1 API client with in-memory TTL caching and retry logic.
+Reads from Postgres first (when available), falls back to live OpenF1 API.
 Docs: https://openf1.org
 """
 
@@ -10,6 +11,9 @@ from cachetools import TTLCache
 from dotenv import load_dotenv
 from typing import Any
 from urllib.parse import quote
+
+from db import queries as db
+from db.pool import get_pool
 
 load_dotenv()
 
@@ -123,6 +127,11 @@ async def _fetch(endpoint: str, params: dict[str, Any] | None = None, live: bool
 # ─── Sessions ────────────────────────────────────────────────────────
 
 async def get_sessions(year: int | None = None, session_type: str | None = None, session_name: str | None = None) -> list[dict]:
+    # DB first (simple year+type queries only)
+    if await get_pool() and year and not session_name:
+        rows = await db.get_sessions(year, session_type)
+        if rows:
+            return rows
     params: dict[str, Any] = {}
     if year:
         params["year"] = year
@@ -130,7 +139,13 @@ async def get_sessions(year: int | None = None, session_type: str | None = None,
         params["session_type"] = session_type
     if session_name:
         params["session_name"] = session_name
-    return await _fetch("/sessions", params)
+    data = await _fetch("/sessions", params)
+    if data and year:
+        try:
+            await db.insert_sessions(data)
+        except Exception:
+            pass
+    return data
 
 
 async def get_qualifying_sessions(year: int) -> list[dict]:
@@ -162,7 +177,17 @@ async def get_session(session_key: int) -> dict | None:
 # ─── Drivers ─────────────────────────────────────────────────────────
 
 async def get_drivers(session_key: int) -> list[dict]:
-    return await _fetch("/drivers", {"session_key": session_key})
+    if await get_pool():
+        rows = await db.get_drivers(session_key)
+        if rows:
+            return rows
+    data = await _fetch("/drivers", {"session_key": session_key})
+    if data:
+        try:
+            await db.insert_drivers(session_key, data)
+        except Exception:
+            pass
+    return data
 
 
 # ─── Laps ────────────────────────────────────────────────────────────
@@ -182,7 +207,8 @@ async def get_position(session_key: int, driver_number: int | None = None, fresh
         params["driver_number"] = driver_number
     data = await _fetch("/position", params, bypass_cache=fresh)
     if data and not driver_number:
-        print(f"[OpenF1] Position data for session {session_key}: {len(data)} records")
+        print(
+            f"[OpenF1] Position data for session {session_key}: {len(data)} records")
         if data:
             print(f"[OpenF1] Sample: {data[-1]}")
     return data
@@ -192,30 +218,60 @@ async def get_session_result(
     session_key: int,
     max_position: int | None = None,
 ) -> list[dict]:
+    if await get_pool() and max_position is None:
+        rows = await db.get_session_results(session_key)
+        if rows:
+            return rows
     params: dict[str, Any] = {"session_key": session_key}
     if max_position is not None:
         params["position<="] = max_position
-    return await _fetch("/session_result", params)
+    data = await _fetch("/session_result", params)
+    if data and max_position is None:
+        try:
+            await db.insert_session_results(session_key, data)
+        except Exception:
+            pass
+    return data
 
 
 async def get_driver_championship(
     session_key: int,
     driver_number: int | None = None,
 ) -> list[dict]:
+    if await get_pool():
+        rows = await db.get_championship_drivers(session_key, driver_number)
+        if rows:
+            return rows
     params: dict[str, Any] = {"session_key": session_key}
     if driver_number:
         params["driver_number"] = driver_number
-    return await _fetch("/championship_drivers", params)
+    data = await _fetch("/championship_drivers", params)
+    if data and not driver_number:
+        try:
+            await db.insert_championship_drivers(session_key, data)
+        except Exception:
+            pass
+    return data
 
 
 async def get_constructor_championship(
     session_key: int,
     team_name: str | None = None,
 ) -> list[dict]:
+    if await get_pool():
+        rows = await db.get_championship_teams(session_key, team_name)
+        if rows:
+            return rows
     params: dict[str, Any] = {"session_key": session_key}
     if team_name:
         params["team_name"] = team_name
-    return await _fetch("/championship_teams", params)
+    data = await _fetch("/championship_teams", params)
+    if data and not team_name:
+        try:
+            await db.insert_championship_teams(session_key, data)
+        except Exception:
+            pass
+    return data
 
 
 # ─── Car Data (telemetry) ────────────────────────────────────────────
@@ -291,6 +347,76 @@ async def get_location(session_key: int, driver_number: int | None = None) -> li
     if driver_number:
         params["driver_number"] = driver_number
     return await _fetch("/location", params)
+
+# ─── Processed Track Map ─────────────────────────────────────────────
+
+async def get_processed_track_map(session_key: int) -> dict:
+    """
+    Fetch and downsample location data for all drivers in a session.
+    This mimics the logic previously in main.py but allows it to be
+    called during seeding or as a fallback.
+    """
+    drivers_list = await get_drivers(session_key)
+    if not drivers_list:
+        return {"outline": [], "drivers": {}}
+
+    driver_numbers = list({d["driver_number"] for d in drivers_list})
+    DRIVER_TARGET = 3000
+
+    async def fetch_one(dn: int) -> tuple[int, list[dict]]:
+        try:
+            raw = await get_location(session_key, dn)
+            return dn, raw or []
+        except Exception:
+            return dn, []
+
+    results = await asyncio.gather(*(fetch_one(dn) for dn in driver_numbers))
+
+    outline: list[dict] = []
+    drivers_data: dict[str, list[dict]] = {} # Use str keys for JSON consistency
+
+    for dn, raw in results:
+        if not raw:
+            continue
+
+        raw.sort(key=lambda p: p.get("date", ""))
+
+        if not outline:
+            try:
+                dn_laps = await get_laps(session_key, dn)
+                for try_lap in [3, 2, 4, 5, 1]:
+                    lap_s = next(
+                        (l for l in dn_laps if l.get("lap_number") == try_lap), None)
+                    lap_e = next(
+                        (l for l in dn_laps if l.get("lap_number") == try_lap + 1), None)
+                    if lap_s and lap_e:
+                        t0, t1 = lap_s["date_start"], lap_e["date_start"]
+                        candidate = [
+                            {"x": p["x"], "y": p["y"]}
+                            for p in raw
+                            if t0 <= p.get("date", "") <= t1 and p.get("x") is not None
+                        ]
+                        if len(candidate) > 20:
+                            outline = candidate
+                            break
+            except Exception:
+                pass
+            if not outline:
+                step = max(1, len(raw) // 2000)
+                outline = [
+                    {"x": p["x"], "y": p["y"]}
+                    for p in raw[::step]
+                    if p.get("x") is not None
+                ]
+
+        step = max(1, len(raw) // DRIVER_TARGET)
+        drivers_data[str(dn)] = [
+            {"x": p["x"], "y": p["y"], "date": p["date"]}
+            for p in raw[::step]
+            if p.get("x") is not None
+        ]
+
+    return {"outline": outline, "drivers": drivers_data}
 
 
 # ─── Driver lookup (cross-session) ───────────────────────────────────

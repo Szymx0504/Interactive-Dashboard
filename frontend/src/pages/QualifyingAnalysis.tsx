@@ -1,24 +1,15 @@
 // QualifyingAnalysis.tsx
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api } from "../lib/api";
 import { useApi } from "../hooks/useApi";
-import type { Driver } from "../types";
+import type { Driver, Session } from "../types";
 import type { QSession, QualLap, QualStint, QualCarData } from "../lib/api";
 import QualifyingTable from "../components/charts/QualifyingTable";
 import MiniSectorMap from "../components/charts/MiniSectorMap";
 import SpeedChart from "../components/charts/SpeedChart";
 import EngineChart from "../components/charts/EngineChart";
 import PedalChart from "../components/charts/PedalChart";
-
-interface Session {
-    session_key: number;
-    session_name: string;
-    session_type: string;
-    country_name: string;
-    circuit_short_name: string;
-    date_start: string;
-    year: number;
-}
 
 // One entry per race weekend — a single qualifying session_key covers all
 // three Q segments (we split them via race_control "Started" events, not
@@ -55,11 +46,23 @@ function Card({
     );
 }
 
-export default function QualifyingAnalysis() {
-    const currentYear = new Date().getFullYear();
-    const years = [2025, 2024, 2023].filter((y) => y <= currentYear);
+const AVAILABLE_YEARS = [2025, 2024, 2023];
 
-    const [year, setYear] = useState<number>(years[0]);
+export default function QualifyingAnalysis() {
+    const [searchParams, setSearchParams] = useSearchParams();
+    const year = Number(searchParams.get("year")) || AVAILABLE_YEARS[0];
+    const setYear = useCallback(
+        (y: number) => {
+            setSearchParams((prev) => {
+                const next = new URLSearchParams(prev);
+                next.set("year", String(y));
+                next.delete("session");
+                return next;
+            }, { replace: true });
+        },
+        [setSearchParams],
+    );
+
     const [selectedRaceKey, setSelectedRaceKey] = useState<string | null>(null);
     const [qSession, setQSession] = useState<QSession>("Q3");
     const [focusDriver, setFocusDriver] = useState<number | null>(null);
@@ -293,7 +296,7 @@ export default function QualifyingAnalysis() {
                     }}
                     className="bg-f1-card border border-f1-border rounded-lg px-3 py-2 text-sm"
                 >
-                    {years.map((y) => (
+                    {AVAILABLE_YEARS.map((y) => (
                         <option key={y} value={y}>
                             {y}
                         </option>

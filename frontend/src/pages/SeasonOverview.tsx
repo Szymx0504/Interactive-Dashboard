@@ -1,6 +1,7 @@
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 import { api } from "../lib/api";
 import { useApi } from "../hooks/useApi";
+import { useRaceSelector } from "../hooks/useRaceSelector";
 import type {
     Driver,
     SessionResultRow,
@@ -12,16 +13,7 @@ import DriverChampionshipTable from "../components/charts/DriverChampionshipTabl
 import ConstructorChampionshipTable from "../components/charts/ConstructorChampionshipTable";
 import SeasonGrid from "../components/charts/SeasonGrid";
 import PointsProgressionChart from "../components/charts/PointsProgressionChart";
-
-interface Session {
-    session_key: number;
-    session_name: string;
-    session_type: string;
-    country_name: string;
-    circuit_short_name: string;
-    date_start: string;
-    year: number;
-}
+import RaceSelector from "../components/shared/RaceSelector";
 
 function Card({
     title,
@@ -45,26 +37,19 @@ function Card({
 }
 
 export default function SeasonOverview() {
-    const currentYear = new Date().getFullYear();
-    const years = [2025, 2024, 2023].filter((y) => y <= currentYear);
+    const selector = useRaceSelector("Race");
+    const { year, sessionKey: selectedSessionKey, setSessionKey: setSelectedSessionKey, sessions: raceSessions, sessionsLoading } = selector;
 
-    const [year, setYear] = useState<number>(years[0]);
-    const [selectedSessionKey, setSelectedSessionKey] = useState<number | null>(
-        null,
-    );
-
-    const { data: raceSessions, loading: sessionsLoading } = useApi<Session[]>(
-        () => api.getSessions(year, "Race"),
-        [year],
-    );
-
+    // Auto-select latest past race when sessions load and none is selected
     useEffect(() => {
-        if (!raceSessions?.length) return;
+        if (selectedSessionKey || !raceSessions?.length) return;
         const today = new Date().toISOString();
         const past = raceSessions.filter((s) => s.date_start <= today);
         const target = past.length ? past[past.length - 1] : raceSessions[0];
         setSelectedSessionKey(target.session_key);
-    }, [raceSessions]);
+    }, [raceSessions, selectedSessionKey, setSelectedSessionKey]);
+
+    const selectedSession = selector.selectedSession;
 
     const { data: selectedDrivers } = useApi<Driver[]>(
         () =>
@@ -101,10 +86,6 @@ export default function SeasonOverview() {
         [year, selectedSessionKey],
     );
 
-    const selectedSession = raceSessions?.find(
-        (s) => s.session_key === selectedSessionKey,
-    );
-
     const uniqueSelectedDrivers = selectedDrivers
         ? selectedDrivers.filter(
               (d, i, arr) =>
@@ -115,52 +96,7 @@ export default function SeasonOverview() {
 
     return (
         <div className="space-y-6">
-            <div className="flex flex-wrap items-center gap-4">
-                <h1 className="text-2xl font-bold">Season Overview</h1>
-
-                <select
-                    value={year}
-                    onChange={(e) => {
-                        setYear(Number(e.target.value));
-                        setSelectedSessionKey(null);
-                    }}
-                    className="bg-f1-card border border-f1-border rounded-lg px-3 py-2 text-sm"
-                >
-                    {years.map((y) => (
-                        <option key={y} value={y}>
-                            {y}
-                        </option>
-                    ))}
-                </select>
-
-                <select
-                    value={selectedSessionKey ?? ""}
-                    onChange={(e) =>
-                        setSelectedSessionKey(Number(e.target.value))
-                    }
-                    className="bg-f1-card border border-f1-border rounded-lg px-3 py-2 text-sm min-w-[220px]"
-                    disabled={!raceSessions?.length}
-                >
-                    <option value="">Select Race…</option>
-                    {raceSessions?.map((s) => (
-                        <option key={s.session_key} value={s.session_key}>
-                            {s.circuit_short_name} — {s.country_name}
-                        </option>
-                    ))}
-                </select>
-
-                {selectedSession && (
-                    <span className="text-f1-muted text-sm">
-                        {new Date(
-                            selectedSession.date_start,
-                        ).toLocaleDateString(undefined, {
-                            year: "numeric",
-                            month: "long",
-                            day: "numeric",
-                        })}
-                    </span>
-                )}
-            </div>
+            <RaceSelector title="Season Overview" {...selector} />
 
             {sessionsLoading && (
                 <p className="text-f1-muted text-sm">Loading sessions…</p>

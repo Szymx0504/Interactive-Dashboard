@@ -18,6 +18,8 @@ dist/
 .DS_Store
 Thumbs.db
 
+backend/.env
+
 # Project files (local only)
 DataVis_lab_4.pdf
 task.txt
