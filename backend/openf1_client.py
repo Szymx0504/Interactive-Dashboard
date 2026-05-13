@@ -193,10 +193,20 @@ async def get_drivers(session_key: int) -> list[dict]:
 # ─── Laps ────────────────────────────────────────────────────────────
 
 async def get_laps(session_key: int, driver_number: int | None = None) -> list[dict]:
+    if await get_pool():
+        rows = await db.get_laps(session_key, driver_number)
+        if rows:
+            return rows
     params: dict[str, Any] = {"session_key": session_key}
     if driver_number:
         params["driver_number"] = driver_number
-    return await _fetch("/laps", params)
+    data = await _fetch("/laps", params)
+    if data and not driver_number:
+        try:
+            await db.insert_laps(session_key, data)
+        except Exception:
+            pass
+    return data
 
 
 # ─── Position ────────────────────────────────────────────────────────
@@ -313,10 +323,20 @@ async def get_pit_stops(session_key: int, driver_number: int | None = None) -> l
 # ─── Stints (tire data) ─────────────────────────────────────────────
 
 async def get_stints(session_key: int, driver_number: int | None = None) -> list[dict]:
+    if await get_pool():
+        rows = await db.get_stints(session_key, driver_number)
+        if rows:
+            return rows
     params: dict[str, Any] = {"session_key": session_key}
     if driver_number:
         params["driver_number"] = driver_number
-    return await _fetch("/stints", params)
+    data = await _fetch("/stints", params)
+    if data and not driver_number:
+        try:
+            await db.insert_stints(session_key, data)
+        except Exception:
+            pass
+    return data
 
 
 # ─── Intervals (gap to leader) ──────────────────────────────────────
@@ -331,7 +351,17 @@ async def get_intervals(session_key: int, driver_number: int | None = None) -> l
 # ─── Race Control (flags, safety cars, etc.) ─────────────────────────
 
 async def get_race_control(session_key: int) -> list[dict]:
-    return await _fetch("/race_control", {"session_key": session_key})
+    if await get_pool():
+        rows = await db.get_race_control(session_key)
+        if rows:
+            return rows
+    data = await _fetch("/race_control", {"session_key": session_key})
+    if data:
+        try:
+            await db.insert_race_control(session_key, data)
+        except Exception:
+            pass
+    return data
 
 
 # ─── Weather ─────────────────────────────────────────────────────────
@@ -349,6 +379,7 @@ async def get_location(session_key: int, driver_number: int | None = None) -> li
     return await _fetch("/location", params)
 
 # ─── Processed Track Map ─────────────────────────────────────────────
+
 
 async def get_processed_track_map(session_key: int) -> dict:
     """
@@ -373,7 +404,8 @@ async def get_processed_track_map(session_key: int) -> dict:
     results = await asyncio.gather(*(fetch_one(dn) for dn in driver_numbers))
 
     outline: list[dict] = []
-    drivers_data: dict[str, list[dict]] = {} # Use str keys for JSON consistency
+    # Use str keys for JSON consistency
+    drivers_data: dict[str, list[dict]] = {}
 
     for dn, raw in results:
         if not raw:

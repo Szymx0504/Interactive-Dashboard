@@ -77,7 +77,58 @@ CREATE TABLE IF NOT EXISTS championship_teams (
     PRIMARY KEY (session_key, team_name)
 );
 
--- 6. Track map cache (downsampled location data, ~1.5-2 MB per session)
+-- 6. Laps per session (~300-400 rows for qualifying, ~1200 for races)
+CREATE TABLE IF NOT EXISTS laps (
+    session_key        INTEGER NOT NULL,
+    meeting_key        INTEGER,
+    driver_number      INTEGER NOT NULL,
+    lap_number         INTEGER NOT NULL,
+    date_start         TEXT,
+    lap_duration       DOUBLE PRECISION,
+    duration_sector_1  DOUBLE PRECISION,
+    duration_sector_2  DOUBLE PRECISION,
+    duration_sector_3  DOUBLE PRECISION,
+    i1_speed           DOUBLE PRECISION,
+    i2_speed           DOUBLE PRECISION,
+    st_speed           DOUBLE PRECISION,
+    is_pit_out_lap     BOOLEAN,
+    segments_sector_1  JSONB,
+    segments_sector_2  JSONB,
+    segments_sector_3  JSONB,
+    PRIMARY KEY (session_key, driver_number, lap_number)
+);
+CREATE INDEX IF NOT EXISTS idx_laps_session ON laps (session_key);
+
+-- 7. Stints / tyre data (~80-120 rows per session)
+CREATE TABLE IF NOT EXISTS stints (
+    session_key        INTEGER NOT NULL,
+    meeting_key        INTEGER,
+    driver_number      INTEGER NOT NULL,
+    stint_number       INTEGER NOT NULL,
+    lap_start          INTEGER,
+    lap_end            INTEGER,
+    compound           TEXT,
+    tyre_age_at_start  INTEGER,
+    PRIMARY KEY (session_key, driver_number, stint_number)
+);
+
+-- 8. Race control messages (flags, starts, safety cars — ~30-80 per session)
+CREATE TABLE IF NOT EXISTS race_control (
+    id                 SERIAL PRIMARY KEY,
+    session_key        INTEGER NOT NULL,
+    meeting_key        INTEGER,
+    date               TEXT NOT NULL,
+    category           TEXT,
+    flag               TEXT,
+    message            TEXT,
+    scope              TEXT,
+    driver_number      INTEGER,
+    lap_number         INTEGER,
+    UNIQUE (session_key, date, message)
+);
+CREATE INDEX IF NOT EXISTS idx_race_control_session ON race_control (session_key);
+
+-- 9. Track map cache (downsampled location data, ~1.5-2 MB per session)
 CREATE TABLE IF NOT EXISTS track_map_cache (
     session_key     INTEGER PRIMARY KEY,
     data            JSONB NOT NULL,
