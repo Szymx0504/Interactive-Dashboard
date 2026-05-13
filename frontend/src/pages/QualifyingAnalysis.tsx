@@ -65,7 +65,7 @@ export default function QualifyingAnalysis() {
 
     const [selectedRaceKey, setSelectedRaceKey] = useState<string | null>(null);
     const [qSession, setQSession] = useState<QSession>("Q3");
-    const [focusDriver, setFocusDriver] = useState<number | null>(null);
+    const [focusDrivers, setFocusDrivers] = useState<number[]>([]);
 
     // Q1/Q2/Q3 time boundaries from race_control "Started" events
     const [qualSegments, setQualSegments] = useState<QSegments>({});
@@ -129,7 +129,7 @@ export default function QualifyingAnalysis() {
         const past = raceGroups.filter((g) => g.session.date_start <= today);
         const target = past.length ? past[past.length - 1] : raceGroups[0];
         setSelectedRaceKey(target.raceKey);
-        setFocusDriver(null);
+        setFocusDrivers([]);
     }, [raceGroups]);
 
     const currentRaceGroup =
@@ -273,9 +273,7 @@ export default function QualifyingAnalysis() {
         // naturally re-fetches on Q tab switch.
     }, [selectedSessionKey, uniqueDrivers, segStart, segEnd]);
 
-    const focusDriverInfo = uniqueDrivers.find(
-        (d) => d.driver_number === focusDriver,
-    );
+    // focusDriverInfo removed — multi-driver focus handled in child components
     const cardTitle = hasSegments
         ? `${effectiveQSession} Results — ${currentRaceGroup?.label.split(" —")[0] ?? ""}`
         : `Qualifying Results — ${currentRaceGroup?.label.split(" —")[0] ?? ""}`;
@@ -292,7 +290,7 @@ export default function QualifyingAnalysis() {
                     onChange={(e) => {
                         setYear(Number(e.target.value));
                         setSelectedRaceKey(null);
-                        setFocusDriver(null);
+                        setFocusDrivers([]);
                     }}
                     className="bg-f1-card border border-f1-border rounded-lg px-3 py-2 text-sm"
                 >
@@ -308,7 +306,7 @@ export default function QualifyingAnalysis() {
                     value={selectedRaceKey ?? ""}
                     onChange={(e) => {
                         setSelectedRaceKey(e.target.value || null);
-                        setFocusDriver(null);
+                        setFocusDrivers([]);
                     }}
                     className="bg-f1-card border border-f1-border rounded-lg px-3 py-2 text-sm min-w-[220px]"
                     disabled={!raceGroups.length}
@@ -353,7 +351,7 @@ export default function QualifyingAnalysis() {
                                 key={q}
                                 onClick={() => {
                                     setQSession(q);
-                                    setFocusDriver(null);
+                                    setFocusDrivers([]);
                                 }}
                                 disabled={!available}
                                 className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors
@@ -389,20 +387,69 @@ export default function QualifyingAnalysis() {
                     </p>
                 )}
 
-            {/* Driver focus badge */}
-            {focusDriver && (
-                <div className="flex items-center gap-2 text-sm">
-                    <span className="text-f1-muted">Driver Focus:</span>
-                    <span
-                        className="font-bold"
-                        style={{
-                            color: `#${focusDriverInfo?.team_colour ?? "fff"}`,
-                        }}
-                    >
-                        #{focusDriver} {focusDriverInfo?.name_acronym}
-                    </span>
+            {/* Driver focus badges */}
+            {focusDrivers.length > 0 && (
+                <div className="flex items-center gap-2 text-sm flex-wrap">
+                    <span className="text-f1-muted">Comparing:</span>
+                    {(() => {
+                        // Detect teammates: same team_colour among focused drivers
+                        const colorToNums = new Map<string, number[]>();
+                        for (const num of focusDrivers) {
+                            const d = uniqueDrivers.find((dr) => dr.driver_number === num);
+                            const col = (d?.team_colour ?? "888888").toLowerCase();
+                            const arr = colorToNums.get(col) ?? [];
+                            arr.push(num);
+                            colorToNums.set(col, arr);
+                        }
+                        // Secondary driver (fewer wins is not computable here, so use
+                        // higher driver number as tie-break) gets the pinstripe badge
+                        const pinstripeSet = new Set<number>();
+                        colorToNums.forEach((nums) => {
+                            if (nums.length > 1) {
+                                [...nums].sort((a, b) => b - a).slice(0, nums.length - 1).forEach((n) => pinstripeSet.add(n));
+                            }
+                        });
+                        return focusDrivers.map((num) => {
+                            const info = uniqueDrivers.find((d) => d.driver_number === num);
+                            const baseColor = `#${info?.team_colour ?? "fff"}`;
+                            const isStripe = pinstripeSet.has(num);
+                            const displayColor = isStripe
+                                ? (() => {
+                                    // HSL-based variant: same hue, nudge lightness + saturation
+                                    const h = baseColor.replace("#", "");
+                                    const r = parseInt(h.slice(0, 2), 16) / 255;
+                                    const g = parseInt(h.slice(2, 4), 16) / 255;
+                                    const b = parseInt(h.slice(4, 6), 16) / 255;
+                                    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+                                    const l = (max + min) / 2;
+                                    const d2 = max - min;
+                                    const s = max === min ? 0 : l > 0.5 ? d2 / (2 - max - min) : d2 / (max + min);
+                                    let hue = 0;
+                                    if (max !== min) {
+                                        if (max === r) hue = ((g - b) / d2 + (g < b ? 6 : 0)) / 6;
+                                        else if (max === g) hue = ((b - r) / d2 + 2) / 6;
+                                        else hue = ((r - g) / d2 + 4) / 6;
+                                    }
+                                    const lit = l * 100;
+                                    const isDark = lit < 45;
+                                    const newL = isDark ? Math.min(lit + 32, 92) : Math.max(lit - 28, 12);
+                                    const newS = Math.min(s * 100 + (isDark ? 18 : 15), 100);
+                                    return `hsl(${(hue * 360).toFixed(1)},${newS.toFixed(1)}%,${newL.toFixed(1)}%)`;
+                                })()
+                                : baseColor;
+                            return (
+                                <span
+                                    key={num}
+                                    className="inline-flex items-center gap-1 font-bold"
+                                    style={{ color: displayColor }}
+                                >
+                                    #{num} {info?.name_acronym}
+                                </span>
+                            );
+                        });
+                    })()}
                     <button
-                        onClick={() => setFocusDriver(null)}
+                        onClick={() => setFocusDrivers([])}
                         className="text-f1-muted hover:text-white transition-colors text-xs border border-f1-border rounded px-2 py-0.5"
                     >
                         Clear
@@ -429,8 +476,8 @@ export default function QualifyingAnalysis() {
                                     laps={laps}
                                     stints={stints ?? []}
                                     qSession={effectiveQSession}
-                                    focusDriver={focusDriver}
-                                    onFocusDriver={setFocusDriver}
+                                    focusDrivers={focusDrivers}
+                                    onFocusDrivers={setFocusDrivers}
                                 />
                             )}
                         </Card>
@@ -441,8 +488,8 @@ export default function QualifyingAnalysis() {
                                 laps={laps}
                                 carDataMap={carDataMap}
                                 sessionKey={selectedSessionKey!}
-                                focusDriver={focusDriver}
-                                onFocusDriver={setFocusDriver}
+                                focusDrivers={focusDrivers}
+                                onFocusDrivers={setFocusDrivers}
                             />
                         </Card>
                     </div>

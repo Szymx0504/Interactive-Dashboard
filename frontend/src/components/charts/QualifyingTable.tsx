@@ -1,15 +1,15 @@
 import { useMemo } from "react";
 import type { Driver } from "../../types";
 import type { QualLap, QualStint, QSession } from "../../lib/api";
-import { fmt, fmtGap, bestLapsByDriver, COMPOUND_COLOR } from "../../lib/api";
+import { fmt, bestLapsByDriver, COMPOUND_COLOR } from "../../lib/api";
 
 interface Props {
     drivers: Driver[];
     laps: QualLap[];
     stints: QualStint[];
     qSession: QSession;
-    focusDriver: number | null;
-    onFocusDriver: (n: number | null) => void;
+    focusDrivers: number[];
+    onFocusDrivers: (nums: number[]) => void;
 }
 
 function TireBadge({ compound }: { compound: string }) {
@@ -32,8 +32,8 @@ export default function QualifyingTable({
     laps,
     stints,
     qSession,
-    focusDriver,
-    onFocusDriver,
+    focusDrivers = [],
+    onFocusDrivers = () => {},
 }: Props) {
     const rows = useMemo(() => {
         const bestByDriver = bestLapsByDriver(laps);
@@ -51,7 +51,6 @@ export default function QualifyingTable({
                     (b.lap.lap_duration ?? Infinity),
             );
 
-        const poleTime = sorted[0]?.lap.lap_duration ?? null;
         const cutoffs: Record<QSession, number> = { Q1: 0, Q2: 15, Q3: 10 };
         const cutoff = cutoffs[qSession];
 
@@ -69,48 +68,71 @@ export default function QualifyingTable({
             driverNumber: r.num,
             driver: r.driver,
             bestLap: r.lap?.lap_duration ?? null,
-            gap: r.lap && poleTime ? r.lap.lap_duration! - poleTime : null,
             tire: stintByDriver.get(r.num) ?? "UNKNOWN",
             eliminated: !r.lap || (cutoff > 0 && i >= cutoff),
         }));
     }, [drivers, laps, stints, qSession]);
 
+    function handleRowClick(driverNumber: number) {
+        if (focusDrivers.includes(driverNumber)) {
+            // Deselect this driver
+            onFocusDrivers(focusDrivers.filter((n) => n !== driverNumber));
+        } else {
+            // Add to focus set
+            onFocusDrivers([...focusDrivers, driverNumber]);
+        }
+    }
+
+    const anyFocused = focusDrivers.length > 0;
+
     return (
         <div className="overflow-x-auto">
+            {anyFocused && (
+                <div className="flex items-center justify-between px-3 py-1.5 mb-1 text-[10px] text-f1-muted bg-f1-border/10 rounded">
+                    <span>
+                        {focusDrivers.length === 1
+                            ? "1 driver selected — click another to compare"
+                            : `${focusDrivers.length} drivers selected — comparing on map`}
+                    </span>
+                    <button
+                        className="text-white/40 hover:text-white/80 transition-colors"
+                        onClick={() => onFocusDrivers([])}
+                    >
+                        Clear
+                    </button>
+                </div>
+            )}
             <table className="w-full text-[11px] font-mono border-collapse">
                 <thead>
                     <tr>
-                        {[
-                            "Pos",
-                            "#",
-                            "Name",
-                            "Team",
-                            "Best Lap",
-                            "Gap",
-                            "Tire",
-                        ].map((h) => (
-                            <th
-                                key={h}
-                                className="py-2 px-3 text-left text-[10px] font-semibold text-f1-muted uppercase tracking-wider whitespace-nowrap"
-                            >
-                                {h}
-                            </th>
-                        ))}
+                        {["Pos", "#", "Name", "Team", "Best Lap", "Tire"].map(
+                            (h) => (
+                                <th
+                                    key={h}
+                                    className="py-2 px-3 text-left text-[10px] font-semibold text-f1-muted uppercase tracking-wider whitespace-nowrap"
+                                >
+                                    {h}
+                                </th>
+                            ),
+                        )}
                     </tr>
                 </thead>
                 <tbody>
                     {rows.map((r) => {
                         const color = `#${r.driver?.team_colour ?? "888888"}`;
-                        const focused = focusDriver === r.driverNumber;
+                        const focused = focusDrivers.includes(r.driverNumber);
+                        const muted = anyFocused && !focused;
                         return (
                             <tr
                                 key={r.driverNumber}
-                                className={`border-t border-f1-border cursor-pointer transition-colors ${focused ? "bg-f1-border/40" : "hover:bg-f1-border/20"} ${r.eliminated ? "opacity-40" : ""}`}
-                                onClick={() =>
-                                    onFocusDriver(
-                                        focused ? null : r.driverNumber,
-                                    )
-                                }
+                                className={`border-t border-f1-border cursor-pointer transition-colors ${
+                                    focused
+                                        ? "bg-f1-border/40"
+                                        : "hover:bg-f1-border/20"
+                                } ${r.eliminated ? "opacity-40" : ""} ${
+                                    muted ? "opacity-30" : ""
+                                }`}
+                                onClick={() => handleRowClick(r.driverNumber)}
                             >
                                 <td className="py-2 px-3 text-f1-muted">
                                     {r.pos}
@@ -136,9 +158,6 @@ export default function QualifyingTable({
                                 </td>
                                 <td className="py-2 px-3 text-white">
                                     {fmt(r.bestLap)}
-                                </td>
-                                <td className="py-2 px-3 text-f1-muted">
-                                    {fmtGap(r.gap)}
                                 </td>
                                 <td className="py-2 px-3">
                                     <TireBadge compound={r.tire} />
