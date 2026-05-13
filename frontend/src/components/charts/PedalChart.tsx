@@ -449,11 +449,21 @@ export default function PedalChart({ drivers, laps, carDataMap }: Props) {
                                 className="rounded-lg border border-f1-border p-3 text-white shadow-2xl"
                                 style={{
                                     backgroundColor: "#111214",
-                                    minWidth: 160,
+                                    minWidth: 200,
                                 }}
                             >
-                                <div className="mb-2 text-[11px] font-semibold uppercase tracking-widest text-f1-muted">
-                                    {distLabel(hoverDist)}
+                                <div className="flex items-center justify-between mb-1">
+                                    <span className="text-[11px] font-semibold uppercase tracking-widest text-f1-muted">
+                                        {distLabel(hoverDist)}
+                                    </span>
+                                    <div className="flex gap-3">
+                                        <span className="text-[9px] font-semibold uppercase tracking-widest text-f1-muted w-14 text-center">
+                                            Throttle
+                                        </span>
+                                        <span className="text-[9px] font-semibold uppercase tracking-widest text-f1-muted w-10 text-center">
+                                            Brake
+                                        </span>
+                                    </div>
                                 </div>
                                 <div className="space-y-[3px]">
                                     {hoverPoints.map((pt) => (
@@ -473,20 +483,18 @@ export default function PedalChart({ drivers, laps, carDataMap }: Props) {
                                                     {pt.name}
                                                 </span>
                                             </div>
-                                            <span className="text-[11px] font-mono font-bold">
+                                            <span className="text-[11px] font-mono font-bold flex gap-3">
                                                 <span
-                                                    style={{
-                                                        color: pt.color,
-                                                    }}
+                                                    className="w-14 text-center"
+                                                    style={{ color: pt.color }}
                                                 >
                                                     {Math.round(pt.throttle)}%
-                                                </span>{" "}
+                                                </span>
                                                 <span
-                                                    style={{
-                                                        color: pt.color,
-                                                    }}
+                                                    className="w-10 text-center"
+                                                    style={{ color: pt.color }}
                                                 >
-                                                    B{Math.round(pt.brake)}%
+                                                    {Math.round(pt.brake)}%
                                                 </span>
                                             </span>
                                         </div>
@@ -575,7 +583,10 @@ export default function PedalChart({ drivers, laps, carDataMap }: Props) {
                     <span className="flex items-center gap-1.5 text-[10px] text-f1-muted px-2 py-0.5">
                         <svg width="12" height="4" style={{ flexShrink: 0 }}>
                             <line
-                                x1="0" y1="2" x2="12" y2="2"
+                                x1="0"
+                                y1="2"
+                                x2="12"
+                                y2="2"
                                 stroke={series[0]?.color ?? "#888"}
                                 strokeWidth="2"
                                 strokeDasharray="4 3"

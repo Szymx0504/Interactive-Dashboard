@@ -433,11 +433,16 @@ export default function SpeedChart({ drivers, laps, carDataMap }: Props) {
                                 className="rounded-lg border border-f1-border p-3 text-white shadow-2xl"
                                 style={{
                                     backgroundColor: "#111214",
-                                    minWidth: 140,
+                                    minWidth: 200,
                                 }}
                             >
-                                <div className="mb-2 text-[11px] font-semibold uppercase tracking-widest text-f1-muted">
-                                    {distLabel(hoverDist)}
+                                <div className="flex items-center justify-between mb-1">
+                                    <span className="text-[11px] font-semibold uppercase tracking-widest text-f1-muted">
+                                        {distLabel(hoverDist)}
+                                    </span>
+                                    <span className="text-[9px] font-semibold uppercase tracking-widest text-f1-muted w-20 text-center">
+                                        Speed
+                                    </span>
                                 </div>
                                 <div className="space-y-[3px]">
                                     {hoverPoints.map((pt) => (
@@ -458,7 +463,7 @@ export default function SpeedChart({ drivers, laps, carDataMap }: Props) {
                                                 </span>
                                             </div>
                                             <span
-                                                className="text-[11px] font-mono font-bold"
+                                                className="text-[11px] font-mono font-bold w-20 text-center"
                                                 style={{ color: pt.color }}
                                             >
                                                 {Math.round(pt.speed)} km/h
