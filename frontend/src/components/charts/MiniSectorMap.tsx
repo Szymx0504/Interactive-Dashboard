@@ -241,6 +241,17 @@ export default function MiniSectorMap({
     const miniSectorData = useMemo(() => {
         if (!carDataMap.size) return null;
 
+        // Only include drivers who actually participated in this Q segment.
+        // carDataMap is built from all session telemetry and may include drivers
+        // eliminated in Q1/Q2 whose best-lap data was recorded in an earlier segment.
+        // Cross-referencing against `laps` (already filtered to the active segment
+        // by QualifyingAnalysis) ensures we only show drivers active in this Q.
+        const eligibleDrivers = new Set(
+            laps
+                .filter((l) => l.lap_duration != null)
+                .map((l) => l.driver_number),
+        );
+
         const driverData: {
             num: number;
             data: QualCarData[];
@@ -249,6 +260,8 @@ export default function MiniSectorMap({
         }[] = [];
         let maxDist = 0;
         carDataMap.forEach((data, num) => {
+            // Skip drivers not active in the current Q segment
+            if (eligibleDrivers.size > 0 && !eligibleDrivers.has(num)) return;
             const distances = computeDistances(data);
             const totalDist = distances[distances.length - 1] ?? 0;
             if (totalDist > 0) {
@@ -299,7 +312,7 @@ export default function MiniSectorMap({
         }
 
         return { results, maxDist };
-    }, [carDataMap, drivers]);
+    }, [carDataMap, drivers, laps]);
 
     /* ── Comparison mode: which segments each focused driver wins ────── */
 
@@ -472,6 +485,17 @@ export default function MiniSectorMap({
             pinstripe: boolean;
         }[] = [];
 
+        // Pre-compute all boundary points once so adjacent segments share
+        // exactly the same interpolated coordinate — no duplicate drawing at S/F.
+        // We deliberately do NOT snap any boundary to canvasPts[0]: arc=0 and
+        // arc=totalArc are both interpolated via interpAtArc so they return the
+        // same value, preventing the double-stroke that occurred when one segment
+        // used canvasPts[0] and the other used interpAtArc of a nearby arc value.
+        const boundaryPts: { px: number; py: number }[] = [];
+        for (let i = 0; i <= NUM_MINI; i++) {
+            boundaryPts.push(interpAtArc((i / NUM_MINI) * totalArc));
+        }
+
         for (let i = 0; i < NUM_MINI; i++) {
             const arcStart = (i / NUM_MINI) * totalArc;
             const arcEnd = ((i + 1) / NUM_MINI) * totalArc;
@@ -480,8 +504,9 @@ export default function MiniSectorMap({
             // Secondary teammate gets a noticeably lighter tint of the same hue
             const color = pinstripe ? teammateVariant(baseColor) : baseColor;
 
-            const startPt = i === 0 ? canvasPts[0] : interpAtArc(arcStart);
-            const segPts: { px: number; py: number }[] = [startPt];
+            // Start from the pre-computed boundary so it matches the previous
+            // segment's end point exactly (shared reference, no floating-point gap).
+            const segPts: { px: number; py: number }[] = [boundaryPts[i]];
 
             for (let j = 0; j < outline.length; j++) {
                 if (arcs[j] > arcStart && arcs[j] < arcEnd) {
@@ -489,9 +514,7 @@ export default function MiniSectorMap({
                 }
             }
 
-            const endPt =
-                i === NUM_MINI - 1 ? canvasPts[0] : interpAtArc(arcEnd);
-            segPts.push(endPt);
+            segPts.push(boundaryPts[i + 1]);
 
             segments.push({ points: segPts, color, pinstripe });
         }
@@ -624,7 +647,7 @@ export default function MiniSectorMap({
                             ))}
                         </defs>
 
-                        {/* Dark track background */}
+                        {/* Dark track background + gray underlay */}
                         {trackData?.outline &&
                             (() => {
                                 const bounds = computeBounds(trackData.outline);
@@ -639,14 +662,31 @@ export default function MiniSectorMap({
                                         )
                                         .join(" ") + " Z";
                                 return (
-                                    <path
-                                        d={d}
-                                        fill="none"
-                                        stroke="#1a1a2e"
-                                        strokeWidth={TRACK_STROKE + 4}
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                    />
+                                    <>
+                                        {/* Outer shadow / border */}
+                                        <path
+                                            d={d}
+                                            fill="none"
+                                            stroke="#1a1a2e"
+                                            strokeWidth={TRACK_STROKE + 4}
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                        />
+                                        {/* Gray underlay — drawn with round caps so the full
+                                            track outline looks smooth. The colored minisector
+                                            segments (butt caps, exact same width) will cover
+                                            this completely, leaving only tiny joints visible
+                                            as gray dots where segments meet — which is correct
+                                            F1-style sector boundary behavior. */}
+                                        <path
+                                            d={d}
+                                            fill="none"
+                                            stroke="#2d2d44"
+                                            strokeWidth={TRACK_STROKE}
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                        />
+                                    </>
                                 );
                             })()}
 
@@ -678,7 +718,11 @@ export default function MiniSectorMap({
                             const sharedProps = {
                                 d,
                                 fill: "none" as const,
-                                strokeLinecap: "round" as const,
+                                // "butt" caps end exactly at each boundary coordinate,
+                                // so adjacent segments tile cleanly with zero overlap.
+                                // "round" was the root cause of both the double-line
+                                // at S/F and the color-bleed dots at every junction.
+                                strokeLinecap: "butt" as const,
                                 strokeLinejoin: "round" as const,
                                 style: {
                                     cursor: "pointer",
