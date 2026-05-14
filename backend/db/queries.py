@@ -218,6 +218,110 @@ async def insert_championship_teams(session_key: int, rows: list[dict]) -> None:
     )
 
 
+# ─── Laps ────────────────────────────────────────────────────────────
+
+async def get_laps(session_key: int, driver_number: int | None = None) -> list[dict]:
+    if driver_number:
+        return await _fetch_rows(
+            "SELECT * FROM laps WHERE session_key=$1 AND driver_number=$2 ORDER BY lap_number",
+            session_key, driver_number,
+        )
+    return await _fetch_rows(
+        "SELECT * FROM laps WHERE session_key=$1 ORDER BY driver_number, lap_number",
+        session_key,
+    )
+
+
+async def insert_laps(session_key: int, rows: list[dict]) -> None:
+    if not rows:
+        return
+    await _executemany(
+        """INSERT INTO laps (session_key, meeting_key, driver_number, lap_number,
+           date_start, lap_duration, duration_sector_1, duration_sector_2,
+           duration_sector_3, i1_speed, i2_speed, st_speed, is_pit_out_lap,
+           segments_sector_1, segments_sector_2, segments_sector_3)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+           ON CONFLICT DO NOTHING""",
+        [
+            (
+                session_key, r.get("meeting_key"), r.get("driver_number"),
+                r.get("lap_number"), r.get(
+                    "date_start"), r.get("lap_duration"),
+                r.get("duration_sector_1"), r.get("duration_sector_2"),
+                r.get("duration_sector_3"), r.get(
+                    "i1_speed"), r.get("i2_speed"),
+                r.get("st_speed"), r.get("is_pit_out_lap"),
+                json.dumps(r.get("segments_sector_1")) if r.get(
+                    "segments_sector_1") is not None else None,
+                json.dumps(r.get("segments_sector_2")) if r.get(
+                    "segments_sector_2") is not None else None,
+                json.dumps(r.get("segments_sector_3")) if r.get(
+                    "segments_sector_3") is not None else None,
+            )
+            for r in rows
+        ],
+    )
+
+
+# ─── Stints ──────────────────────────────────────────────────────────
+
+async def get_stints(session_key: int, driver_number: int | None = None) -> list[dict]:
+    if driver_number:
+        return await _fetch_rows(
+            "SELECT * FROM stints WHERE session_key=$1 AND driver_number=$2 ORDER BY stint_number",
+            session_key, driver_number,
+        )
+    return await _fetch_rows(
+        "SELECT * FROM stints WHERE session_key=$1 ORDER BY driver_number, stint_number",
+        session_key,
+    )
+
+
+async def insert_stints(session_key: int, rows: list[dict]) -> None:
+    if not rows:
+        return
+    await _executemany(
+        """INSERT INTO stints (session_key, meeting_key, driver_number, stint_number,
+           lap_start, lap_end, compound, tyre_age_at_start)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING""",
+        [
+            (
+                session_key, r.get("meeting_key"), r.get("driver_number"),
+                r.get("stint_number"), r.get("lap_start"), r.get("lap_end"),
+                r.get("compound"), r.get("tyre_age_at_start"),
+            )
+            for r in rows
+        ],
+    )
+
+
+# ─── Race Control ────────────────────────────────────────────────────
+
+async def get_race_control(session_key: int) -> list[dict]:
+    return await _fetch_rows(
+        "SELECT * FROM race_control WHERE session_key=$1 ORDER BY date",
+        session_key,
+    )
+
+
+async def insert_race_control(session_key: int, rows: list[dict]) -> None:
+    if not rows:
+        return
+    await _executemany(
+        """INSERT INTO race_control (session_key, meeting_key, date, category,
+           flag, message, scope, driver_number, lap_number)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT DO NOTHING""",
+        [
+            (
+                session_key, r.get("meeting_key"), r.get("date"),
+                r.get("category"), r.get("flag"), r.get("message"),
+                r.get("scope"), r.get("driver_number"), r.get("lap_number"),
+            )
+            for r in rows
+        ],
+    )
+
+
 # ─── Track Map Cache ─────────────────────────────────────────────────
 
 async def get_track_map(session_key: int) -> dict | None:
