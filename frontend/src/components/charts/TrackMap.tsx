@@ -527,10 +527,11 @@ export default function TrackMap({
     const range = lapRanges.get(currentLap);
     if (!range) return;
 
+    const isFirstLoad = prevLapRef.current === 0;
     const isNormalAdvance = currentLap === prevLapRef.current + 1;
     prevLapRef.current = currentLap;
 
-    if (!isNormalAdvance) {
+    if (isFirstLoad || !isNormalAdvance) {
       raceTimeRef.current = range.start;
       lastTickRef.current = 0;
     }
