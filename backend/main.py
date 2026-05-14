@@ -6,10 +6,13 @@ Serves OpenF1 data via REST + WebSocket for race replay.
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 import asyncio
 import httpx
 import json
+import os
+from pathlib import Path
 
 from openf1_client import (
     get_sessions,
@@ -615,6 +618,23 @@ async def ws_replay(websocket: WebSocket, session_key: int):
         replay_manager.disconnect(websocket)
 
 
+# ─── Serve frontend static build (production) ────────────────────────
+FRONTEND_DIR = Path(__file__).parent / ".." / "frontend" / "dist"
+if FRONTEND_DIR.exists():
+    # Serve static assets (JS, CSS, images)
+    app.mount(
+        "/assets", StaticFiles(directory=str(FRONTEND_DIR / "assets")), name="assets")
+
+    # SPA fallback: any non-API route returns index.html
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        file_path = FRONTEND_DIR / full_path
+        if file_path.exists() and file_path.is_file():
+            return FileResponse(str(file_path))
+        return FileResponse(str(FRONTEND_DIR / "index.html"))
+
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
