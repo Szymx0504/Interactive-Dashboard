@@ -24,15 +24,15 @@ export default function Navbar() {
 
     return (
         <nav className="navbar-f1 border-b border-f1-border px-6 py-4 flex items-center gap-10">
-            <NavLink to={carryParams("/")} className="navbar-brand flex items-center gap-3">
+            <NavLink
+                to={carryParams("/")}
+                className="navbar-brand flex items-center gap-3"
+            >
                 <img
-                    src="/images/F1.png"
+                    src="/images/F1_PUTwall.PNG"
                     alt="Formula 1 logo"
-                    className="h-9 w-auto object-contain"
+                    className="h-10 w-auto object-contain"
                 />
-                <span className="text-f1-text text-sm font-semibold tracking-[0.18em] uppercase">
-                    Analyzer
-                </span>
             </NavLink>
 
             <div className="flex items-center gap-4">
