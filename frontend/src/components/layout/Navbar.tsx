@@ -24,8 +24,9 @@ export default function Navbar() {
 
     return (
         <nav className="navbar-f1 border-b border-f1-border px-6 py-4 flex items-center gap-10">
-            <NavLink
-                to={carryParams("/")}
+            <a
+                href="https://www.youtube.com/embed/ZtiQk-vqmBA?autoplay=1"
+                target="_blank"
                 className="navbar-brand flex items-center gap-3"
             >
                 <img
@@ -33,7 +34,7 @@ export default function Navbar() {
                     alt="Formula 1 logo"
                     className="h-10 w-auto object-contain"
                 />
-            </NavLink>
+            </a>
 
             <div className="flex items-center gap-4">
                 {links.map(({ to, label }) => (
@@ -50,11 +51,13 @@ export default function Navbar() {
             </div>
 
             <div className="navbar-end ml-auto flex items-center gap-4 border-l border-f1-border pl-6">
-                <img
-                    src="/images/PP_logo.png"
-                    alt="PP logo"
-                    className="h-10 w-auto object-contain"
-                />
+                <a href="https://put.poznan.pl/" target="_blank">
+                    <img
+                        src="/images/PP_logo.png"
+                        alt="PP logo"
+                        className="h-10 w-auto object-contain"
+                    />
+                </a>
             </div>
         </nav>
     );
