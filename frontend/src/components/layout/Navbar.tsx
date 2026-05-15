@@ -3,7 +3,6 @@ import { NavLink, useSearchParams } from "react-router-dom";
 const links = [
     { to: "/", label: "Race Replay" },
     { to: "/season", label: "Season Overview" },
-    { to: "/driver", label: "Driver Analysis" },
     { to: "/qualifying", label: "Qualifying" },
     { to: "/about", label: "About" },
 ];
