@@ -288,14 +288,24 @@ async def driver_championship_by_year(year: int, after_session_key: int | None =
     if not all_sessions:
         return []
 
+    # Exclude Sprint races — championship standings are only updated after GPs
+    gp_sessions = [s for s in all_sessions if s.get("session_name", "") != "Sprint"]
+
     today = __import__("datetime").datetime.utcnow().isoformat()
-    past = [s for s in all_sessions if s.get("date_start", "") <= today]
+    past = [s for s in gp_sessions if s.get("date_start", "") <= today]
     if not past:
         return []
 
     if after_session_key:
-        candidates = [s for s in past if s["session_key"] <= after_session_key]
-        target_session = candidates[-1] if candidates else past[-1]
+        target_date = next(
+            (s["date_start"] for s in all_sessions if s["session_key"] == after_session_key),
+            None,
+        )
+        if target_date:
+            candidates = [s for s in past if s.get("date_start", "") <= target_date]
+            target_session = candidates[-1] if candidates else past[-1]
+        else:
+            target_session = past[-1]
     else:
         target_session = past[-1]
 
@@ -308,19 +318,27 @@ async def constructor_championship_by_year(year: int, after_session_key: int | N
     if not all_sessions:
         return []
 
+    gp_sessions = [s for s in all_sessions if s.get("session_name", "") != "Sprint"]
+
     today = __import__("datetime").datetime.utcnow().isoformat()
-    past = [s for s in all_sessions if s.get("date_start", "") <= today]
+    past = [s for s in gp_sessions if s.get("date_start", "") <= today]
     if not past:
         return []
 
     if after_session_key:
-        candidates = [s for s in past if s["session_key"] <= after_session_key]
-        target_session = candidates[-1] if candidates else past[-1]
+        target_date = next(
+            (s["date_start"] for s in all_sessions if s["session_key"] == after_session_key),
+            None,
+        )
+        if target_date:
+            candidates = [s for s in past if s.get("date_start", "") <= target_date]
+            target_session = candidates[-1] if candidates else past[-1]
+        else:
+            target_session = past[-1]
     else:
         target_session = past[-1]
 
     return await constructor_championship(target_session["session_key"])
-
 
 # ─── Laps ────────────────────────────────────────────────────────────
 

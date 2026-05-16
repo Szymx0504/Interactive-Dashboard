@@ -167,6 +167,7 @@ export default function SeasonOverview() {
                         <PointsProgressionChart
                             year={year}
                             selectedSessionKey={selectedSessionKey}
+                            selectedSession={selectedSession}
                         />
                     </div>
 
