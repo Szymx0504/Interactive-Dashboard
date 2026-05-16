@@ -1,4 +1,7 @@
-![F1 PUTwall Logo](.\frontend\public\F1_PUTwall_black.PNG)
+<p align="center">
+  <img src="frontend/public/F1_PUTwall_black.PNG" alt="F1 PUTwall Logo" width="400"/>
+</p>
+
 
 # F1 PUTwall
 
