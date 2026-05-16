@@ -1,5 +1,5 @@
 # Interactive-Dashboard
-Homework for lab4 data vizualization classes
+Homework for lab4 data vizualization classes  
 https://docs.google.com/document/d/1ofDVrL2JtfMeKDEDlq6Qdw6wLFKivXSs8LwVSjqh5KQ/edit?usp=sharing
 
 # F1 Analyzer
@@ -37,9 +37,32 @@ Runs on http://localhost:5173 (proxies API requests to backend)
 
 ## Features
 
-- **Race Replay** — lap-by-lap replay with position, gap, lap times, tire strategy, weather & speed charts
-- **Season Overview** — race calendar, driver standings, sector heatmap with cross-filtering
-- **Driver Analysis** — deep-dive into individual driver performance
+### Race Replay Page
+Replay races lap-by-lap with the following visualizations:
+- **Position chart** — positions of each driver throughout the race
+- **Race Event Feed** — all events that occurred during the race
+- **Race Map** — live map with drivers moving around the circuit
+- **Gap to leader chart** — gap to the leader for each driver in seconds
+- **Lap times chart** — each driver's current lap time
+- **Tire strategy chart** — each driver's current tire compound
+- **Weather conditions** — live weather info during the race
+
+### Season Overview Page
+Explore season-level statistics:
+- **Driver and Constructor championship table** — standings after the chosen race
+- **Points** — points awarded for the chosen race
+- **Points throughout the season** — cumulative points up to the chosen race
+- **Season results grid** — finishing position of each driver in each race
+
+### Qualifying Page
+Analyze qualifying session data:
+- **Q1/Q2/Q3 results table** — full qualifying results
+- **Mini sector fastest map** — fastest mini sectors across the lap
+- **Speed line chart** — driver speeds across the lap
+- **RPM/Gear chart** — RPM and gear selection over the lap
+- **Throttle/Brake chart** — throttle and brake percentages over the lap
+
+### Additional Features
 - **Live Data** — real-time race data via WebSocket streaming
 
 ## Data Source
