@@ -1,8 +1,6 @@
-# Interactive-Dashboard
-Homework for lab4 data vizualization classes  
-https://docs.google.com/document/d/1ofDVrL2JtfMeKDEDlq6Qdw6wLFKivXSs8LwVSjqh5KQ/edit?usp=sharing
+![F1 PUTwall Logo](.\frontend\public\F1_PUTwall_black.PNG)
 
-# F1 Analyzer
+# F1 PUTwall
 
 Interactive F1 race data dashboard — replay races lap-by-lap, analyze driver performance, and explore season stats.
 
