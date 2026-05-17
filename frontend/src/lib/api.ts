@@ -14,6 +14,7 @@ import type {
     RaceControlMessage,
     DriverChampionshipEntry,
     ConstructorChampionshipEntry,
+    FullRaceData,
 } from "../types";
 
 const BASE = "/api";

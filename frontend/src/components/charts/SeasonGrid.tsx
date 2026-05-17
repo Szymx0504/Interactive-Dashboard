@@ -145,18 +145,6 @@ function cellLabel(slot: RaceSlot): string {
     return slot; // "DNF", "DNS", "DSQ", "NC"
 }
 
-function cellTitle(slot: RaceSlot): string {
-    if (slot === null) return "Did not participate";
-    if (typeof slot === "number") return `P${slot} — ${pts(slot)} pts`;
-    const labels: Record<string, string> = {
-        DNF: "Did Not Finish",
-        DNS: "Did Not Start",
-        DSQ: "Disqualified",
-        NC: "Not Classified",
-    };
-    return labels[slot] ?? slot;
-}
-
 type State =
     | { status: "idle" }
     | { status: "loading" }
