@@ -387,6 +387,15 @@ async def get_intervals(session_key: int, driver_number: int | None = None) -> l
     )
 
 
+def _safe_float(val) -> float | None:
+    if val is None:
+        return None
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return None
+
+
 async def insert_intervals(session_key: int, rows: list[dict]) -> None:
     if not rows:
         return
@@ -396,7 +405,7 @@ async def insert_intervals(session_key: int, rows: list[dict]) -> None:
         [
             (
                 session_key, r.get("driver_number"), r.get("date"),
-                r.get("gap_to_leader"), r.get("interval"),
+                _safe_float(r.get("gap_to_leader")), _safe_float(r.get("interval")),
             )
             for r in rows
         ],
