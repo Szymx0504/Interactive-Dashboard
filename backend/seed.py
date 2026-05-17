@@ -34,6 +34,8 @@ CORE_TABLES: list[tuple[str, str, str]] = [
     ("laps",                 "get_laps",                   "insert_laps"),
     ("stints",               "get_stints",                 "insert_stints"),
     ("race_control",         "get_race_control",           "insert_race_control"),
+    ("weather",              "get_weather",                "insert_weather"),
+    ("intervals",            "get_intervals",              "insert_intervals"),
     ("track_map_cache",      "get_processed_track_map",    "insert_track_map"),
 ]
 
