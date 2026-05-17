@@ -1,11 +1,13 @@
+import { useMemo } from "react";
 import { Thermometer, Droplets, Wind, CloudRain } from "lucide-react";
 import {
-    LineChart,
     Line,
     XAxis,
     YAxis,
     Tooltip,
     ResponsiveContainer,
+    Area,
+    ComposedChart,
 } from "recharts";
 import type { Weather } from "../../types";
 
@@ -16,21 +18,49 @@ interface Props {
     maxLap: number;
 }
 
+// Custom tooltip for the weather chart
+function WeatherTooltip({ active, payload }: any) {
+    if (!active || !payload?.length) return null;
+    const data = payload[0].payload;
+    return (
+        <div className="bg-[#111214] border border-[#2d2f33] rounded-lg px-3 py-2 text-xs">
+            <p className="text-f1-muted mb-1">Sample {data.idx}</p>
+            {payload.map((entry: any) => (
+                <p key={entry.dataKey} style={{ color: entry.color }}>
+                    {entry.name}: {entry.value?.toFixed(1)}
+                    {entry.dataKey === "humidity" ? "%" : entry.dataKey === "rainfall" ? " mm" : "°C"}
+                </p>
+            ))}
+        </div>
+    );
+}
+
 export default function WeatherPanel({
     weather,
     allWeather,
     currentLap,
     maxLap,
 }: Props) {
-    void currentLap;
-    void maxLap;
-    // Build temperature timeline
-    const tempData = allWeather.map((w, i) => ({
-        idx: i + 1,
-        air: w.air_temperature,
-        track: w.track_temperature,
-        humidity: w.humidity,
-    }));
+    // Progressive data: only show up to the current lap proportion
+    const tempData = useMemo(() => {
+        if (!allWeather.length || !maxLap) return allWeather.map((w, i) => ({
+            idx: i + 1,
+            air: w.air_temperature,
+            track: w.track_temperature,
+            humidity: w.humidity,
+            rainfall: w.rainfall ?? 0,
+        }));
+
+        const progress = currentLap / maxLap;
+        const sliceEnd = Math.max(1, Math.ceil(allWeather.length * progress));
+        return allWeather.slice(0, sliceEnd).map((w, i) => ({
+            idx: i + 1,
+            air: w.air_temperature,
+            track: w.track_temperature,
+            humidity: w.humidity,
+            rainfall: w.rainfall ?? 0,
+        }));
+    }, [allWeather, currentLap, maxLap]);
 
     return (
         <div className="bg-f1-card rounded-xl border border-f1-border p-4">
@@ -91,49 +121,65 @@ export default function WeatherPanel({
                                     Rainfall
                                 </p>
                                 <p className="text-sm font-semibold">
-                                    {weather.rainfall ? "Yes" : "No"}
+                                    {weather.rainfall ? `${weather.rainfall} mm` : "None"}
                                 </p>
                             </div>
                         </div>
                     </div>
 
-                    {/* Temperature chart */}
+                    {/* Temperature + rainfall chart */}
                     {tempData.length > 1 && (
-                        <ResponsiveContainer width="100%" height={120}>
-                            <LineChart data={tempData}>
+                        <ResponsiveContainer width="100%" height={140}>
+                            <ComposedChart data={tempData}>
                                 <XAxis dataKey="idx" hide />
                                 <YAxis
+                                    yAxisId="temp"
                                     stroke="#9ca3af"
                                     tick={{ fontSize: 10 }}
                                     width={30}
+                                    domain={["auto", "auto"]}
                                 />
-                                <Tooltip
-                                    contentStyle={{
-                                        backgroundColor: "#111214",
-                                        border: "1px solid #2d2f33",
-                                        borderRadius: "8px",
-                                        fontSize: 12,
-                                    }}
+                                <YAxis
+                                    yAxisId="rain"
+                                    orientation="right"
+                                    stroke="#3b82f6"
+                                    tick={{ fontSize: 10 }}
+                                    width={30}
+                                    domain={[0, "auto"]}
+                                    hide={!tempData.some(d => d.rainfall > 0)}
                                 />
+                                <Tooltip content={<WeatherTooltip />} />
                                 <Line
+                                    yAxisId="temp"
                                     type="monotone"
                                     dataKey="air"
                                     stroke="#fb923c"
                                     strokeWidth={1.5}
                                     dot={false}
-                                    name="Air °C"
+                                    name="Air"
                                     isAnimationActive={false}
                                 />
                                 <Line
+                                    yAxisId="temp"
                                     type="monotone"
                                     dataKey="track"
                                     stroke="#ef4444"
                                     strokeWidth={1.5}
                                     dot={false}
-                                    name="Track °C"
+                                    name="Track"
                                     isAnimationActive={false}
                                 />
-                            </LineChart>
+                                <Area
+                                    yAxisId="rain"
+                                    type="stepAfter"
+                                    dataKey="rainfall"
+                                    stroke="#3b82f6"
+                                    fill="#3b82f680"
+                                    strokeWidth={1}
+                                    name="Rainfall"
+                                    isAnimationActive={false}
+                                />
+                            </ComposedChart>
                         </ResponsiveContainer>
                     )}
                 </>
