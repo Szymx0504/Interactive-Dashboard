@@ -229,6 +229,17 @@ async def insert_championship_teams(session_key: int, rows: list[dict]) -> None:
     )
 
 
+async def get_sessions_with_data(year: int) -> set[int]:
+    """Return session keys that have at least one lap row (i.e. have usable data)."""
+    rows = await _fetch_rows(
+        """SELECT DISTINCT l.session_key FROM laps l
+           JOIN sessions s ON l.session_key = s.session_key
+           WHERE s.year = $1""",
+        year,
+    )
+    return {r["session_key"] for r in rows}
+
+
 # ─── Laps ────────────────────────────────────────────────────────────
 
 async def get_laps(session_key: int, driver_number: int | None = None) -> list[dict]:
