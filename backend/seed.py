@@ -98,10 +98,15 @@ async def seed_year(year: int, force: bool) -> None:
     await db.insert_sessions(sessions)
     print(f"  {len(sessions)} sessions found")
 
-    for i, s in enumerate(sessions):
+    # Filter out testing, practice, and qualifying sessions for bulk telemetry seeding.
+    # This prevents exceeding Neon's 512 MB project size limit by focusing only on high-value racing sessions.
+    telemetry_sessions = [s for s in sessions if s.get("session_type") in ["Race", "Sprint"]]
+    print(f"  Filtering to {len(telemetry_sessions)} competitive sessions (Races & Sprints) to save database space.")
+
+    for i, s in enumerate(telemetry_sessions):
         sk = s["session_key"]
         label = f"{s.get('session_name', '?')} — {s.get('circuit_short_name', '?')} ({s.get('country_name', '?')})"
-        print(f"\n[{i+1}/{len(sessions)}] {label}  (session_key={sk})")
+        print(f"\n[{i+1}/{len(telemetry_sessions)}] {label}  (session_key={sk})")
 
         t0 = time.time()
         await seed_session(sk, label, s.get("session_type", ""), force)
