@@ -164,6 +164,9 @@ export const api = {
     getRaceControl: (sessionKey: number) =>
         fetchJson<RaceControlMessage[]>(`/sessions/${sessionKey}/race_control`),
 
+    getRaceReplayData: (sessionKey: number) =>
+        fetchJson<FullRaceData>(`/sessions/${sessionKey}/race_replay_data`),
+
     getTrackMap: (sessionKey: number) =>
         fetchJson<TrackMapData>(`/sessions/${sessionKey}/track_map`),
 

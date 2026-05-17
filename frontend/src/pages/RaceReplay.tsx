@@ -38,28 +38,10 @@ export default function RaceReplay() {
       setLoadingData(true);
       setRaceData(null);
       try {
-        // Sequential fetches to avoid 429 rate-limiting from OpenF1
-        const laps = await api.getLaps(sessionKey!);
-        if (cancelled) return;
-        const positions = await api.getPosition(sessionKey!);
-        if (cancelled) return;
-        const stints = await api.getStints(sessionKey!);
-        if (cancelled) return;
-        const weather = await api.getWeather(sessionKey!);
-        if (cancelled) return;
-        const intervals = await api.getIntervals(sessionKey!);
-        if (cancelled) return;
-        const raceControl = await api.getRaceControl(sessionKey!);
+        // Batch fetch all race replay data to avoid rate-limiting and improve speed
+        const data = await api.getRaceReplayData(sessionKey!);
         if (!cancelled) {
-          setRaceData({
-            type: "full_race_data",
-            laps,
-            positions,
-            stints,
-            weather,
-            intervals,
-            raceControl,
-          });
+          setRaceData(data);
           setCurrentLap(1);
           setIsPlaying(false);
         }
