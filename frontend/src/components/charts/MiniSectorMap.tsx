@@ -75,6 +75,58 @@ function arcLengths(pts: { x: number; y: number }[]): number[] {
 type Pt = { x: number; y: number };
 type Bounds = { minX: number; maxX: number; minY: number; maxY: number };
 
+/**
+ * Normalize a circuit outline so colored segments cover exactly one lap.
+ *
+ * Two problems the backend outline can have:
+ *   1. **Overshoot** – GPS data goes past S/F (date filter uses next-lap-start),
+ *      adding points beyond the start → visual doubling near S/F.
+ *   2. **Gap** – The outline ends slightly before S/F, so colored segments
+ *      (which don't use the SVG "Z" close) leave an uncolored section.
+ *
+ * Fix: trim any overshoot, then append the first point to close the loop.
+ */
+function normalizeOutline(pts: Pt[]): Pt[] {
+    if (pts.length < 30) return pts;
+    const first = pts[0];
+    const b = computeBounds(pts);
+    const scale = Math.max(b.maxX - b.minX, b.maxY - b.minY) || 1;
+
+    // ── Step 1: trim overshoot ──────────────────────────────────────
+    // In the tail (last 15%), find the point closest to the start.
+    // If there are points AFTER that minimum, they went past S/F → trim them.
+    const searchStart = Math.floor(pts.length * 0.85);
+    let minDist = Infinity;
+    let minIdx = pts.length - 1;
+    for (let i = searchStart; i < pts.length; i++) {
+        const dx = pts[i].x - first.x;
+        const dy = pts[i].y - first.y;
+        const d = Math.sqrt(dx * dx + dy * dy);
+        if (d < minDist) {
+            minDist = d;
+            minIdx = i;
+        }
+    }
+
+    let trimmed = pts;
+    // Only trim if there ARE points after the minimum AND it's close to start
+    if (minIdx < pts.length - 1 && minDist < scale * 0.05) {
+        trimmed = pts.slice(0, minIdx + 1);
+    }
+
+    // ── Step 2: close the loop ──────────────────────────────────────
+    // Append the first point so the arc covers the full circuit.
+    // If the outline already ends at the start (near-zero gap), skip.
+    const last = trimmed[trimmed.length - 1];
+    const gapDx = last.x - first.x;
+    const gapDy = last.y - first.y;
+    const gap = Math.sqrt(gapDx * gapDx + gapDy * gapDy);
+    if (gap > scale * 0.002) {
+        return [...trimmed, { x: first.x, y: first.y }];
+    }
+    return trimmed;
+}
+
 function computeBounds(pts: Pt[]): Bounds {
     let minX = Infinity,
         maxX = -Infinity,
@@ -252,6 +304,10 @@ export default function MiniSectorMap({
                 .map((l) => l.driver_number),
         );
 
+        // Best lap per driver — used to trim telemetry to the real lap duration
+        // so that totalDist ≈ one actual lap (no overshoot past S/F).
+        const bestByDriver = bestLapsByDriver(laps);
+
         const driverData: {
             num: number;
             data: QualCarData[];
@@ -259,9 +315,30 @@ export default function MiniSectorMap({
             totalDist: number;
         }[] = [];
         let maxDist = 0;
-        carDataMap.forEach((data, num) => {
+        carDataMap.forEach((rawData, num) => {
             // Skip drivers not active in the current Q segment
             if (eligibleDrivers.size > 0 && !eligibleDrivers.has(num)) return;
+
+            // Trim telemetry to the driver's actual lap duration.
+            // The backend fetches up to next-lap-start or lap_duration + 2 s,
+            // so the raw data overshoots the S/F line, inflating totalDist and
+            // causing minisector boundaries to extend beyond the real lap.
+            let data = rawData;
+            const bestLap = bestByDriver.get(num);
+            if (bestLap?.lap_duration && rawData.length >= 2) {
+                const t0 = new Date(rawData[0].date).getTime();
+                const tEnd = t0 + bestLap.lap_duration * 1000;
+                // Binary-search for the last sample within the lap
+                let lo = 0,
+                    hi = rawData.length - 1;
+                while (lo < hi) {
+                    const mid = (lo + hi + 1) >> 1;
+                    if (new Date(rawData[mid].date).getTime() <= tEnd) lo = mid;
+                    else hi = mid - 1;
+                }
+                data = rawData.slice(0, lo + 1);
+            }
+
             const distances = computeDistances(data);
             const totalDist = distances[distances.length - 1] ?? 0;
             if (totalDist > 0) {
@@ -432,7 +509,7 @@ export default function MiniSectorMap({
     const trackSegments = useMemo(() => {
         if (!trackData?.outline.length || !miniSectorData) return null;
 
-        const outline = trackData.outline;
+        const outline = normalizeOutline(trackData.outline);
         const bounds = computeBounds(outline);
         const arcs = arcLengths(outline);
         const totalArc = arcs[arcs.length - 1];
@@ -650,8 +727,11 @@ export default function MiniSectorMap({
                         {/* Dark track background + gray underlay */}
                         {trackData?.outline &&
                             (() => {
-                                const bounds = computeBounds(trackData.outline);
-                                const pts = trackData.outline.map((p) =>
+                                const normalized = normalizeOutline(
+                                    trackData.outline,
+                                );
+                                const bounds = computeBounds(normalized);
+                                const pts = normalized.map((p) =>
                                     toCanvas(p.x, p.y, bounds),
                                 );
                                 const d =
