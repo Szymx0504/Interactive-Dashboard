@@ -6,6 +6,7 @@ championship_teams, and track_map_cache.  Everything else stays on-demand.
 """
 
 from __future__ import annotations
+from datetime import datetime
 import json
 from db.pool import get_pool
 
@@ -399,6 +400,35 @@ def _safe_float(val) -> float | None:
 async def insert_intervals(session_key: int, rows: list[dict]) -> None:
     if not rows:
         return
+
+    # Downsample intervals to one record every 45 seconds per driver.
+    # This prevents exceeding Neon's 512 MB project size limit for 2023-2025 telemetry.
+    by_driver: dict[int, list[dict]] = {}
+    for r in rows:
+        dn = r.get("driver_number")
+        if dn is not None:
+            by_driver.setdefault(dn, []).append(r)
+
+    downsampled: list[dict] = []
+    for dn, d_rows in by_driver.items():
+        d_rows.sort(key=lambda x: x.get("date", ""))
+        last_time: float | None = None
+        for r in d_rows:
+            date_str = r.get("date")
+            if not date_str:
+                continue
+            try:
+                # OpenF1 ISO timestamp format: e.g. "2025-03-16T06:04:35.366000+00:00"
+                cleaned = date_str.replace("Z", "+00:00")
+                t = datetime.fromisoformat(cleaned).timestamp()
+            except Exception:
+                downsampled.append(r)
+                continue
+
+            if last_time is None or (t - last_time) >= 10.0:
+                downsampled.append(r)
+                last_time = t
+
     await _executemany(
         """INSERT INTO intervals (session_key, driver_number, date, gap_to_leader, interval)
            VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING""",
@@ -407,7 +437,7 @@ async def insert_intervals(session_key: int, rows: list[dict]) -> None:
                 session_key, r.get("driver_number"), r.get("date"),
                 _safe_float(r.get("gap_to_leader")), _safe_float(r.get("interval")),
             )
-            for r in rows
+            for r in downsampled
         ],
     )
 
