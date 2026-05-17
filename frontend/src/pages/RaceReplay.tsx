@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import { api } from "../lib/api";
 import { useApi } from "../hooks/useApi";
 import { useRaceSelector } from "../hooks/useRaceSelector";
-import type { FullRaceData, Position, Lap } from "../types";
+import type { FullRaceData } from "../types";
 import PositionChart from "../components/charts/PositionChart";
 import LapTimesChart from "../components/charts/LapTimesChart";
 import GapChart from "../components/charts/GapChart";
@@ -14,277 +14,205 @@ import ReplayControls from "../components/replay/ReplayControls";
 import RaceSelector from "../components/shared/RaceSelector";
 
 export default function RaceReplay() {
-    const selector = useRaceSelector("Race");
-    const { sessionKey } = selector;
-    const [selectedDriver, setSelectedDriver] = useState<number | null>(null);
-    const [currentLap, setCurrentLap] = useState(1);
-    const [isPlaying, setIsPlaying] = useState(false);
-    const [speed, setSpeed] = useState(1);
-    const [raceData, setRaceData] = useState<FullRaceData | null>(null);
-    const [loadingData, setLoadingData] = useState(false);
+  const selector = useRaceSelector("Race");
+  const { sessionKey } = selector;
+  const selectedDriver: number | null = null;
+  const [currentLap, setCurrentLap] = useState(1);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [speed, setSpeed] = useState(1);
+  const [raceData, setRaceData] = useState<FullRaceData | null>(null);
+  const [loadingData, setLoadingData] = useState(false);
 
-    // Fetch drivers for selected session
-    const { data: drivers } = useApi(
-        () => (sessionKey ? api.getDrivers(sessionKey) : Promise.resolve([])),
-        [sessionKey],
-    );
+  // Fetch drivers for selected session
+  const { data: drivers } = useApi(
+    () => (sessionKey ? api.getDrivers(sessionKey) : Promise.resolve([])),
+    [sessionKey],
+  );
 
-    // Fetch all data when session is selected
-    useEffect(() => {
-        if (!sessionKey) return;
-        let cancelled = false;
+  // Fetch all data when session is selected
+  useEffect(() => {
+    if (!sessionKey) return;
+    let cancelled = false;
 
-        async function loadData() {
-            setLoadingData(true);
-            setRaceData(null);
-            try {
-                // Sequential fetches to avoid 429 rate-limiting from OpenF1
-                const laps = await api.getLaps(sessionKey!);
-                if (cancelled) return;
-                const positions = await api.getPosition(sessionKey!);
-                if (cancelled) return;
-                const stints = await api.getStints(sessionKey!);
-                if (cancelled) return;
-                const weather = await api.getWeather(sessionKey!);
-                if (cancelled) return;
-                const intervals = await api.getIntervals(sessionKey!);
-                if (cancelled) return;
-                const raceControl = await api.getRaceControl(sessionKey!);
-                if (!cancelled) {
-                    setRaceData({
-                        type: "full_race_data",
-                        laps,
-                        positions,
-                        stints,
-                        weather,
-                        intervals,
-                        raceControl,
-                    });
-                    setCurrentLap(1);
-                    setIsPlaying(false);
-                }
-            } catch (err) {
-                console.error("Failed to load race data:", err);
-            } finally {
-                if (!cancelled) setLoadingData(false);
-            }
+    async function loadData() {
+      setLoadingData(true);
+      setRaceData(null);
+      try {
+        // Sequential fetches to avoid 429 rate-limiting from OpenF1
+        const laps = await api.getLaps(sessionKey!);
+        if (cancelled) return;
+        const positions = await api.getPosition(sessionKey!);
+        if (cancelled) return;
+        const stints = await api.getStints(sessionKey!);
+        if (cancelled) return;
+        const weather = await api.getWeather(sessionKey!);
+        if (cancelled) return;
+        const intervals = await api.getIntervals(sessionKey!);
+        if (cancelled) return;
+        const raceControl = await api.getRaceControl(sessionKey!);
+        if (!cancelled) {
+          setRaceData({
+            type: "full_race_data",
+            laps,
+            positions,
+            stints,
+            weather,
+            intervals,
+            raceControl,
+          });
+          setCurrentLap(1);
+          setIsPlaying(false);
         }
-        loadData();
-        return () => {
-            cancelled = true;
-        };
-    }, [sessionKey]);
+      } catch (err) {
+        console.error("Failed to load race data:", err);
+      } finally {
+        if (!cancelled) setLoadingData(false);
+      }
+    }
+    loadData();
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionKey]);
 
-    // Compute max lap
-    const maxLap = useMemo(() => {
-        if (!raceData) return 0;
-        return Math.max(...raceData.laps.map((l) => l.lap_number ?? 0), 0);
-    }, [raceData]);
+  // Compute max lap
+  const maxLap = useMemo(() => {
+    if (!raceData) return 0;
+    return Math.max(...raceData.laps.map((l) => l.lap_number ?? 0), 0);
+  }, [raceData]);
 
-    // Lap changes are driven by TrackMap animation via onLapChange callback
-    const handleLapChange = useCallback((lap: number) => {
-        setCurrentLap(lap);
-    }, []);
+  // Lap changes are driven by TrackMap animation via onLapChange callback
+  const handleLapChange = useCallback((lap: number) => {
+    setCurrentLap(lap);
+  }, []);
 
-    const handleFinish = useCallback(() => {
-        setIsPlaying(false);
-    }, []);
+  const handleFinish = useCallback(() => {
+    setIsPlaying(false);
+  }, []);
 
-    // Filter data up to current lap for charts
-    const currentWeather = useMemo(() => {
-        if (!raceData?.weather.length) return null;
-        return raceData.weather[
-            Math.min(currentLap - 1, raceData.weather.length - 1)
-        ];
-    }, [raceData, currentLap]);
+  // Filter data up to current lap for charts
+  const currentWeather = useMemo(() => {
+    if (!raceData?.weather.length) return null;
+    return raceData.weather[
+      Math.min(currentLap - 1, raceData.weather.length - 1)
+    ];
+  }, [raceData, currentLap]);
 
-    const currentPositions = useMemo(() => {
-        if (!raceData) return new Map<number, number>();
 
-        const positionsByDriver = new Map<number, Position[]>();
-        raceData.positions.forEach((p) => {
-            const list = positionsByDriver.get(p.driver_number) ?? [];
-            list.push(p);
-            positionsByDriver.set(p.driver_number, list);
-        });
+  // Unique driver list (deduplicated)
+  const uniqueDrivers = useMemo(() => {
+    if (!drivers) return [];
+    const seen = new Set<number>();
+    return drivers.filter((d) => {
+      if (seen.has(d.driver_number)) return false;
+      seen.add(d.driver_number);
+      return true;
+    });
+  }, [drivers]);
 
-        positionsByDriver.forEach((list) =>
-            list.sort((a, b) => a.date.localeCompare(b.date)),
-        );
+  return (
+    <div className="space-y-6">
+      {/* Header controls */}
+      <RaceSelector title="Race Replay" {...selector} />
 
-        const lapsByDriver = new Map<number, Lap[]>();
-        raceData.laps.forEach((lap) => {
-            if (lap.lap_number <= currentLap) {
-                const list = lapsByDriver.get(lap.driver_number) ?? [];
-                list.push(lap);
-                lapsByDriver.set(lap.driver_number, list);
-            }
-        });
+      {/* Replay controls */}
+      {raceData && (
+        <ReplayControls
+          currentLap={currentLap}
+          maxLap={maxLap}
+          isPlaying={isPlaying}
+          speed={speed}
+          onPlayPause={() => setIsPlaying(!isPlaying)}
+          onLapChange={setCurrentLap}
+          onSpeedChange={setSpeed}
+          onReset={() => {
+            setCurrentLap(1);
+            setIsPlaying(false);
+          }}
+        />
+      )}
 
-        const map = new Map<number, number>();
-        lapsByDriver.forEach((lapList, driverNumber) => {
-            lapList.sort((a, b) => b.lap_number - a.lap_number);
-            const lap = lapList[0];
-            const driverPositions = positionsByDriver.get(driverNumber) ?? [];
-            const beforeList = driverPositions.filter(
-                (p) => p.date <= lap.date_start,
-            );
-            const sample =
-                beforeList.length > 0
-                    ? beforeList[beforeList.length - 1]
-                    : driverPositions[driverPositions.length - 1];
-            if (sample) map.set(driverNumber, sample.position);
-        });
-
-        return map;
-    }, [raceData, currentLap]);
-
-    // Unique driver list (deduplicated)
-    const uniqueDrivers = useMemo(() => {
-        if (!drivers) return [];
-        const seen = new Set<number>();
-        return drivers.filter((d) => {
-            if (seen.has(d.driver_number)) return false;
-            seen.add(d.driver_number);
-            return true;
-        });
-    }, [drivers]);
-
-    const sortedDrivers = useMemo(() => {
-        return [...uniqueDrivers].sort((a, b) => {
-            const posA = currentPositions.get(a.driver_number) ?? Infinity;
-            const posB = currentPositions.get(b.driver_number) ?? Infinity;
-            return posA - posB || a.name_acronym.localeCompare(b.name_acronym);
-        });
-    }, [uniqueDrivers, currentPositions]);
-
-    return (
-        <div className="space-y-6">
-            {/* Header controls */}
-            <RaceSelector title="Race Replay" {...selector}>
-                {uniqueDrivers.length > 0 && (
-                    <select
-                        value={selectedDriver ?? ""}
-                        onChange={(e) =>
-                            setSelectedDriver(
-                                e.target.value ? Number(e.target.value) : null,
-                            )
-                        }
-                        className="bg-f1-card border border-f1-border rounded-lg px-3 py-2 text-sm"
-                    >
-                        <option value="">All Drivers</option>
-                        {sortedDrivers.map((d) => (
-                            <option
-                                key={d.driver_number}
-                                value={d.driver_number}
-                            >
-                                {d.name_acronym} — {d.team_name}
-                            </option>
-                        ))}
-                    </select>
-                )}
-            </RaceSelector>
-
-            {/* Replay controls */}
-            {raceData && (
-                <ReplayControls
-                    currentLap={currentLap}
-                    maxLap={maxLap}
-                    isPlaying={isPlaying}
-                    speed={speed}
-                    onPlayPause={() => setIsPlaying(!isPlaying)}
-                    onLapChange={setCurrentLap}
-                    onSpeedChange={setSpeed}
-                    onReset={() => {
-                        setCurrentLap(1);
-                        setIsPlaying(false);
-                    }}
-                />
-            )}
-
-            {/* Charts grid */}
-            {raceData ? (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <PositionChart
-                        laps={raceData.laps}
-                        positions={raceData.positions}
-                        drivers={uniqueDrivers}
-                        highlightDriver={selectedDriver}
-                        currentLap={currentLap}
-                        maxLap={maxLap}
-                    />
-                    <RaceEventsFeed
-                        laps={raceData.laps}
-                        positions={raceData.positions}
-                        stints={raceData.stints}
-                        raceControl={raceData.raceControl}
-                        weather={raceData.weather}
-                        drivers={uniqueDrivers}
-                        currentLap={currentLap}
-                        maxLap={maxLap}
-                        highlightDriver={selectedDriver}
-                    />
-                    <div className="lg:col-span-2">
-                        <TrackMap
-                            sessionKey={sessionKey!}
-                            drivers={uniqueDrivers}
-                            laps={raceData.laps}
-                            positions={raceData.positions}
-                            stints={raceData.stints}
-                            intervals={raceData.intervals}
-                            currentLap={currentLap}
-                            maxLap={maxLap}
-                            speed={speed}
-                            isPlaying={isPlaying}
-                            highlightDriver={selectedDriver}
-                            onLapChange={handleLapChange}
-                            onFinish={handleFinish}
-                        />
-                    </div>
-                    <GapChart
-                        intervals={raceData.intervals}
-                        laps={raceData.laps}
-                        drivers={uniqueDrivers}
-                        highlightDriver={selectedDriver}
-                        currentLap={currentLap}
-                        maxLap={maxLap}
-                    />
-                    <LapTimesChart
-                        laps={raceData.laps}
-                        drivers={uniqueDrivers}
-                        highlightDriver={selectedDriver}
-                        currentLap={currentLap}
-                        maxLap={maxLap}
-                    />
-                    <TireStrategy
-                        stints={raceData.stints}
-                        drivers={uniqueDrivers}
-                        laps={raceData.laps}
-                        maxLap={maxLap}
-                        currentLap={currentLap}
-                    />
-                    <WeatherPanel
-                        weather={currentWeather}
-                        allWeather={raceData.weather}
-                        currentLap={currentLap}
-                        maxLap={maxLap}
-                    />
-                </div>
-            ) : loadingData ? (
-                <div className="text-center text-f1-muted py-20">
-                    <div className="inline-block w-8 h-8 border-4 border-f1-border border-t-f1-red rounded-full animate-spin mb-4" />
-                    <p className="text-lg">Loading race data...</p>
-                    <p className="text-sm mt-1">
-                        Fetching laps, positions, tires, weather & intervals
-                    </p>
-                </div>
-            ) : (
-                <div className="text-center text-f1-muted py-20">
-                    <p className="text-lg">
-                        Select a year and race to begin replay
-                    </p>
-                </div>
-            )}
+      {/* Charts grid */}
+      {raceData ? (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <PositionChart
+            laps={raceData.laps}
+            positions={raceData.positions}
+            drivers={uniqueDrivers}
+            highlightDriver={selectedDriver}
+            currentLap={currentLap}
+            maxLap={maxLap}
+          />
+          <RaceEventsFeed
+            laps={raceData.laps}
+            positions={raceData.positions}
+            stints={raceData.stints}
+            raceControl={raceData.raceControl}
+            weather={raceData.weather}
+            drivers={uniqueDrivers}
+            currentLap={currentLap}
+            maxLap={maxLap}
+            highlightDriver={selectedDriver}
+          />
+          <div className="lg:col-span-2">
+            <TrackMap
+              sessionKey={sessionKey!}
+              drivers={uniqueDrivers}
+              laps={raceData.laps}
+              positions={raceData.positions}
+              stints={raceData.stints}
+              intervals={raceData.intervals}
+              currentLap={currentLap}
+              maxLap={maxLap}
+              speed={speed}
+              isPlaying={isPlaying}
+              highlightDriver={selectedDriver}
+              onLapChange={handleLapChange}
+              onFinish={handleFinish}
+            />
+          </div>
+          <GapChart
+            intervals={raceData.intervals}
+            laps={raceData.laps}
+            drivers={uniqueDrivers}
+            highlightDriver={selectedDriver}
+            currentLap={currentLap}
+            maxLap={maxLap}
+          />
+          <LapTimesChart
+            laps={raceData.laps}
+            drivers={uniqueDrivers}
+            highlightDriver={selectedDriver}
+            currentLap={currentLap}
+            maxLap={maxLap}
+          />
+          <TireStrategy
+            stints={raceData.stints}
+            drivers={uniqueDrivers}
+            laps={raceData.laps}
+            maxLap={maxLap}
+            currentLap={currentLap}
+          />
+          <WeatherPanel
+            weather={currentWeather}
+            allWeather={raceData.weather}
+            currentLap={currentLap}
+            maxLap={maxLap}
+          />
         </div>
-    );
+      ) : loadingData ? (
+        <div className="text-center text-f1-muted py-20">
+          <div className="inline-block w-8 h-8 border-4 border-f1-border border-t-f1-red rounded-full animate-spin mb-4" />
+          <p className="text-lg">Loading race data...</p>
+          <p className="text-sm mt-1">
+            Fetching laps, positions, tires, weather & intervals
+          </p>
+        </div>
+      ) : (
+        <div className="text-center text-f1-muted py-20">
+          <p className="text-lg">Select a year and race to begin replay</p>
+        </div>
+      )}
+    </div>
+  );
 }
