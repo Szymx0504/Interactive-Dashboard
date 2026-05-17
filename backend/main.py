@@ -77,6 +77,16 @@ async def sessions(year: int | None = None, session_type: str | None = None):
         results = await get_qualifying_sessions(year) if year else await get_sessions(session_type=session_type)
     else:
         results = await get_sessions(year, session_type)
+
+    # Tag each session with has_data so the frontend can grey out empty ones
+    if year and await db.get_pool():
+        keys_with_data = await db.get_sessions_with_data(year)
+        for s in results:
+            s["has_data"] = s["session_key"] in keys_with_data
+    else:
+        for s in results:
+            s["has_data"] = True
+
     return results
 
 
