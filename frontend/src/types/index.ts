@@ -13,6 +13,7 @@ export interface Session {
     year: number;
     meeting_key: number;
     meeting_name: string;
+    has_data?: boolean;
 }
 
 export interface Driver {

@@ -45,9 +45,15 @@ export default function RaceSelector({
       >
         <option value="">Select Race…</option>
         {sessions?.map((s) => (
-          <option key={s.session_key} value={s.session_key}>
+          <option
+            key={s.session_key}
+            value={s.session_key}
+            disabled={s.has_data === false}
+            className={s.has_data === false ? "text-gray-500" : ""}
+          >
             {s.circuit_short_name} — {s.country_name}
             {s.session_name === "Sprint" ? " (Sprint)" : ""}
+            {s.has_data === false ? " (No data)" : ""}
           </option>
         ))}
       </select>
