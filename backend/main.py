@@ -398,7 +398,7 @@ async def laps(
 # ─── Position ────────────────────────────────────────────────────────
 
 @app.get("/api/sessions/{session_key}/position")
-async def position(session_key: int, driver_number: int | None = None, fresh: bool = True):
+async def position(session_key: int, driver_number: int | None = None, fresh: bool = False):
     return await get_position(session_key, driver_number, fresh)
 
 
@@ -639,6 +639,31 @@ async def track_map(session_key: int):
             f"[track_map] Failed to cache result for session {session_key}: {e}")
 
     return result_data
+
+
+@app.get("/api/sessions/{session_key}/race_replay_data")
+async def race_replay_data(session_key: int):
+    """
+    Batch-fetch all race replay data in parallel.
+    Avoids 6 sequential client-to-server requests.
+    """
+    laps, positions, stints, weather, intervals, race_control_msgs = await asyncio.gather(
+        get_laps(session_key),
+        get_position(session_key),
+        get_stints(session_key),
+        get_weather(session_key),
+        get_intervals(session_key),
+        get_race_control(session_key),
+    )
+    return {
+        "type": "full_race_data",
+        "laps": laps or [],
+        "positions": positions or [],
+        "stints": stints or [],
+        "weather": weather or [],
+        "intervals": intervals or [],
+        "raceControl": race_control_msgs or [],
+    }
 
 
 # ─── WebSocket: Race Replay ─────────────────────────────────────────
