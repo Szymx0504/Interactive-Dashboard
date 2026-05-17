@@ -371,10 +371,31 @@ export default function TrackMap({
     return sum / lapRanges.size;
   }, [lapRanges]);
 
+  // Determine max lap each driver completed
+  const driverMaxLap = useMemo(() => {
+    const m = new Map<number, number>();
+    for (const l of laps) {
+      const cur = m.get(l.driver_number) ?? 0;
+      if (l.lap_number > cur) m.set(l.driver_number, l.lap_number);
+    }
+    return m;
+  }, [laps]);
+
+  // Find the overall race max lap (to distinguish finishers from retirees)
+  const raceMaxLap = useMemo(() => {
+    let mx = 0;
+    for (const v of driverMaxLap.values()) if (v > mx) mx = v;
+    return mx;
+  }, [driverMaxLap]);
+
   const retiredAt = useMemo(() => {
     const map = new Map<number, number>();
     for (const [dn, samples] of parsed) {
       if (samples.length < 10) continue;
+      // Skip drivers who completed the race (finished within 2 laps of leader)
+      const maxLap = driverMaxLap.get(dn) ?? 0;
+      if (maxLap >= raceMaxLap - 1) continue;
+
       let lastMovingIdx = 0;
       for (let i = 1; i < samples.length; i++) {
         const dx = samples[i].x - samples[i - 1].x;
@@ -389,7 +410,7 @@ export default function TrackMap({
       }
     }
     return map;
-  }, [parsed]);
+  }, [parsed, driverMaxLap, raceMaxLap]);
 
   // ── Position tower data ────────────────────────────────────────────────
 
