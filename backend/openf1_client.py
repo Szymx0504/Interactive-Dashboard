@@ -342,10 +342,20 @@ async def get_stints(session_key: int, driver_number: int | None = None) -> list
 # ─── Intervals (gap to leader) ──────────────────────────────────────
 
 async def get_intervals(session_key: int, driver_number: int | None = None) -> list[dict]:
+    if await get_pool():
+        rows = await db.get_intervals(session_key, driver_number)
+        if rows:
+            return rows
     params: dict[str, Any] = {"session_key": session_key}
     if driver_number:
         params["driver_number"] = driver_number
-    return await _fetch("/intervals", params)
+    data = await _fetch("/intervals", params)
+    if data and not driver_number:
+        try:
+            await db.insert_intervals(session_key, data)
+        except Exception:
+            pass
+    return data
 
 
 # ─── Race Control (flags, safety cars, etc.) ─────────────────────────
@@ -367,7 +377,17 @@ async def get_race_control(session_key: int) -> list[dict]:
 # ─── Weather ─────────────────────────────────────────────────────────
 
 async def get_weather(session_key: int) -> list[dict]:
-    return await _fetch("/weather", {"session_key": session_key})
+    if await get_pool():
+        rows = await db.get_weather(session_key)
+        if rows:
+            return rows
+    data = await _fetch("/weather", {"session_key": session_key})
+    if data:
+        try:
+            await db.insert_weather(session_key, data)
+        except Exception:
+            pass
+    return data
 
 
 # ─── Location (car positions on track) ──────────────────────────────
