@@ -403,6 +403,36 @@ async def insert_intervals(session_key: int, rows: list[dict]) -> None:
     )
 
 
+# ─── Positions ────────────────────────────────────────────────────────
+
+async def get_positions(session_key: int, driver_number: int | None = None) -> list[dict]:
+    if driver_number:
+        return await _fetch_rows(
+            "SELECT * FROM positions WHERE session_key=$1 AND driver_number=$2 ORDER BY date",
+            session_key, driver_number,
+        )
+    return await _fetch_rows(
+        "SELECT * FROM positions WHERE session_key=$1 ORDER BY driver_number, date",
+        session_key,
+    )
+
+
+async def insert_positions(session_key: int, rows: list[dict]) -> None:
+    if not rows:
+        return
+    await _executemany(
+        """INSERT INTO positions (session_key, driver_number, date, position)
+           VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING""",
+        [
+            (
+                session_key, r.get("driver_number"), r.get("date"),
+                r.get("position"),
+            )
+            for r in rows
+        ],
+    )
+
+
 # ─── Track Map Cache ─────────────────────────────────────────────────
 
 async def get_track_map(session_key: int) -> dict | None:

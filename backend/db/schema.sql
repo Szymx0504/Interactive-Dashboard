@@ -161,6 +161,16 @@ CREATE TABLE IF NOT EXISTS intervals (
 );
 CREATE INDEX IF NOT EXISTS idx_intervals_session ON intervals (session_key);
 
+-- 12. Positions (~2000-5000 per session)
+CREATE TABLE IF NOT EXISTS positions (
+    session_key        INTEGER NOT NULL,
+    driver_number      INTEGER NOT NULL,
+    date               TEXT NOT NULL,
+    position           INTEGER NOT NULL,
+    PRIMARY KEY (session_key, driver_number, date)
+);
+CREATE INDEX IF NOT EXISTS idx_positions_session ON positions (session_key);
+
 -- Tracks which sessions have been fully seeded (for the seed script)
 CREATE TABLE IF NOT EXISTS seed_status (
     session_key     INTEGER NOT NULL,
