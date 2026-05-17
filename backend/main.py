@@ -247,15 +247,29 @@ async def driver_championship(
     session_key: int,
     driver_number: int | None = None,
 ):
-    standings, drivers_list = await asyncio.gather(
-        get_driver_championship(session_key, driver_number),
-        get_drivers(session_key),
-    )
-    drivers_map = {d["driver_number"]: d for d in drivers_list}
+    # Get the session to determine the year
+    session_info = await get_session(session_key)
+    year = session_info.get("year") if session_info else None
+
+    standings = await get_driver_championship(session_key, driver_number)
+
+    # Fetch drivers from ALL sessions of the year so mid-season
+    # departures (e.g. De Vries, Ricciardo) still get name/team info
+    if year:
+        all_year_drivers = await db.get_all_drivers_for_year(year)
+    else:
+        all_year_drivers = await get_drivers(session_key)
+
+    # Build lookup — later sessions overwrite earlier (most recent team info wins)
+    drivers_map: dict[int, dict] = {}
+    for d in all_year_drivers:
+        drivers_map[d["driver_number"]] = d
+
     for entry in standings:
         dn = entry.get("driver_number")
         if dn in drivers_map:
             entry.setdefault("team_colour", drivers_map[dn].get("team_colour"))
+            entry.setdefault("team_name", drivers_map[dn].get("team_name"))
             entry.setdefault(
                 "name_acronym", drivers_map[dn].get("name_acronym"))
             entry.setdefault("full_name", drivers_map[dn].get("full_name"))
@@ -289,7 +303,8 @@ async def driver_championship_by_year(year: int, after_session_key: int | None =
         return []
 
     # Exclude Sprint races — championship standings are only updated after GPs
-    gp_sessions = [s for s in all_sessions if s.get("session_name", "") != "Sprint"]
+    gp_sessions = [s for s in all_sessions if s.get(
+        "session_name", "") != "Sprint"]
 
     today = __import__("datetime").datetime.utcnow().isoformat()
     past = [s for s in gp_sessions if s.get("date_start", "") <= today]
@@ -298,11 +313,13 @@ async def driver_championship_by_year(year: int, after_session_key: int | None =
 
     if after_session_key:
         target_date = next(
-            (s["date_start"] for s in all_sessions if s["session_key"] == after_session_key),
+            (s["date_start"]
+             for s in all_sessions if s["session_key"] == after_session_key),
             None,
         )
         if target_date:
-            candidates = [s for s in past if s.get("date_start", "") <= target_date]
+            candidates = [s for s in past if s.get(
+                "date_start", "") <= target_date]
             target_session = candidates[-1] if candidates else past[-1]
         else:
             target_session = past[-1]
@@ -318,7 +335,8 @@ async def constructor_championship_by_year(year: int, after_session_key: int | N
     if not all_sessions:
         return []
 
-    gp_sessions = [s for s in all_sessions if s.get("session_name", "") != "Sprint"]
+    gp_sessions = [s for s in all_sessions if s.get(
+        "session_name", "") != "Sprint"]
 
     today = __import__("datetime").datetime.utcnow().isoformat()
     past = [s for s in gp_sessions if s.get("date_start", "") <= today]
@@ -327,11 +345,13 @@ async def constructor_championship_by_year(year: int, after_session_key: int | N
 
     if after_session_key:
         target_date = next(
-            (s["date_start"] for s in all_sessions if s["session_key"] == after_session_key),
+            (s["date_start"]
+             for s in all_sessions if s["session_key"] == after_session_key),
             None,
         )
         if target_date:
-            candidates = [s for s in past if s.get("date_start", "") <= target_date]
+            candidates = [s for s in past if s.get(
+                "date_start", "") <= target_date]
             target_session = candidates[-1] if candidates else past[-1]
         else:
             target_session = past[-1]
@@ -341,6 +361,7 @@ async def constructor_championship_by_year(year: int, after_session_key: int | N
     return await constructor_championship(target_session["session_key"])
 
 # ─── Laps ────────────────────────────────────────────────────────────
+
 
 @app.get("/api/sessions/{session_key}/laps")
 async def laps(

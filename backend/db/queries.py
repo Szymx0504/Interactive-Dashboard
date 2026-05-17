@@ -102,6 +102,17 @@ async def get_drivers(session_key: int) -> list[dict]:
     )
 
 
+async def get_all_drivers_for_year(year: int) -> list[dict]:
+    """Get drivers from all sessions of a given year (for championship enrichment)."""
+    return await _fetch_rows(
+        """SELECT d.* FROM drivers d
+           JOIN sessions s ON d.session_key = s.session_key
+           WHERE s.year = $1
+           ORDER BY d.session_key, d.driver_number""",
+        year,
+    )
+
+
 async def insert_drivers(session_key: int, rows: list[dict]) -> None:
     if not rows:
         return
