@@ -344,6 +344,65 @@ async def insert_race_control(session_key: int, rows: list[dict]) -> None:
     )
 
 
+# ─── Weather ─────────────────────────────────────────────────────────
+
+async def get_weather(session_key: int) -> list[dict]:
+    return await _fetch_rows(
+        "SELECT * FROM weather WHERE session_key=$1 ORDER BY date",
+        session_key,
+    )
+
+
+async def insert_weather(session_key: int, rows: list[dict]) -> None:
+    if not rows:
+        return
+    await _executemany(
+        """INSERT INTO weather (session_key, date, air_temperature, track_temperature,
+           humidity, pressure, rainfall, wind_direction, wind_speed)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT DO NOTHING""",
+        [
+            (
+                session_key, r.get("date"), r.get("air_temperature"),
+                r.get("track_temperature"), r.get(
+                    "humidity"), r.get("pressure"),
+                r.get("rainfall"), r.get(
+                    "wind_direction"), r.get("wind_speed"),
+            )
+            for r in rows
+        ],
+    )
+
+
+# ─── Intervals ──────────────────────────────────────────────────────
+
+async def get_intervals(session_key: int, driver_number: int | None = None) -> list[dict]:
+    if driver_number:
+        return await _fetch_rows(
+            "SELECT * FROM intervals WHERE session_key=$1 AND driver_number=$2 ORDER BY date",
+            session_key, driver_number,
+        )
+    return await _fetch_rows(
+        "SELECT * FROM intervals WHERE session_key=$1 ORDER BY driver_number, date",
+        session_key,
+    )
+
+
+async def insert_intervals(session_key: int, rows: list[dict]) -> None:
+    if not rows:
+        return
+    await _executemany(
+        """INSERT INTO intervals (session_key, driver_number, date, gap_to_leader, interval)
+           VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING""",
+        [
+            (
+                session_key, r.get("driver_number"), r.get("date"),
+                r.get("gap_to_leader"), r.get("interval"),
+            )
+            for r in rows
+        ],
+    )
+
+
 # ─── Track Map Cache ─────────────────────────────────────────────────
 
 async def get_track_map(session_key: int) -> dict | None:
