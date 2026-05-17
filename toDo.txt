@@ -12,8 +12,8 @@ TODO List — F1 PUTwall
       - [x] Fix broken tooltip
       - [x] Add precipitation/rainfall data
       - [x] Make it update progressively with current lap (like other charts)
-- [ ] Block/disable sessions with no data in race selector (highlight red or grey out)
+- [x] Block/disable sessions with no data in race selector (highlight red or grey out)
       - Applies to: Imola 2023, Baku 2025 Qualifying (404 from OpenF1)
 
 [LOW PRIORITY / PERFORMANCE]
-- [ ] Check all pages load within ~10s — consider pre-processing more data into DB
+- [x] Check all pages load within ~10s — consider pre-processing more data into DB
