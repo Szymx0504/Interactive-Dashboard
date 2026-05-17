@@ -211,7 +211,11 @@ async def get_laps(session_key: int, driver_number: int | None = None) -> list[d
 
 # ─── Position ────────────────────────────────────────────────────────
 
-async def get_position(session_key: int, driver_number: int | None = None, fresh: bool = True) -> list[dict]:
+async def get_position(session_key: int, driver_number: int | None = None, fresh: bool = False) -> list[dict]:
+    if await get_pool() and not fresh:
+        rows = await db.get_positions(session_key, driver_number)
+        if rows:
+            return rows
     params: dict[str, Any] = {"session_key": session_key}
     if driver_number:
         params["driver_number"] = driver_number
@@ -221,6 +225,10 @@ async def get_position(session_key: int, driver_number: int | None = None, fresh
             f"[OpenF1] Position data for session {session_key}: {len(data)} records")
         if data:
             print(f"[OpenF1] Sample: {data[-1]}")
+        try:
+            await db.insert_positions(session_key, data)
+        except Exception as e:
+            print(f"[openf1_client] Failed to insert positions: {e}")
     return data
 
 
