@@ -479,7 +479,7 @@ export default function PositionChart({
                                             transition: "all 0.15s ease",
                                             cursor: "pointer",
                                         }}
-                                        title={`${focused ? "Unfocus" : "Focus"} ${driver.full_name?.split(" ").slice(-1)[0] ?? driver.name_acronym}`}
+                                        title={`${focused ? "Unfocus" : "Focus"} ${(driver.full_name?.split(" ").slice(-1)[0] ?? driver.name_acronym).toUpperCase()}`}
                                     >
                                         <span
                                             className="inline-block w-1.5 h-1.5 rounded-full flex-shrink-0"
@@ -489,10 +489,12 @@ export default function PositionChart({
                                                     : color,
                                             }}
                                         />
-                                        {driver.full_name
-                                            ?.split(" ")
-                                            .slice(-1)[0] ??
-                                            driver.name_acronym}
+                                        {(
+                                            driver.full_name
+                                                ?.split(" ")
+                                                .slice(-1)[0] ??
+                                            driver.name_acronym
+                                        ).toUpperCase()}
                                     </button>
                                 );
                             })}

@@ -28,7 +28,7 @@ function getSurname(driver: Driver | undefined): string {
         driver?.full_name ?? driver?.broadcast_name ?? driver?.name_acronym;
     if (!name) return "Unknown";
     const parts = name.trim().split(" ");
-    return parts[parts.length - 1] || name;
+    return (parts[parts.length - 1] || name).toUpperCase();
 }
 
 type ClassifiedStatus = "Finished" | "DNF" | "DNS" | "DSQ";

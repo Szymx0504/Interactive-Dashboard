@@ -184,7 +184,7 @@ function reducer(_state: State, action: Action): State {
 function getSurname(fullName?: string): string | null {
     if (!fullName) return null;
     const parts = fullName.trim().split(" ");
-    return parts[parts.length - 1] || null;
+    return parts[parts.length - 1]?.toUpperCase() || null;
 }
 
 // ── Cell Tooltip ──────────────────────────────────────────────────────────────
@@ -227,23 +227,32 @@ function cellTooltipContent(
             </div>
             <div
                 style={{
-                    fontSize: 11,
-                    fontWeight: 700,
-                    color: "#ffffff",
-                    marginBottom: 2,
-                }}
-            >
-                {driverName}
-            </div>
-            <div
-                style={{
-                    fontSize: 10,
-                    fontWeight: 600,
-                    color: teamColor,
+                    display: "flex",
+                    alignItems: "baseline",
+                    justifyContent: "space-between",
+                    gap: 6,
                     marginBottom: 6,
                 }}
             >
-                {teamName}
+                <span
+                    style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: teamColor,
+                    }}
+                >
+                    {driverName}
+                </span>
+                <span
+                    style={{
+                        fontSize: 10,
+                        fontWeight: 600,
+                        color: teamColor,
+                        opacity: 0.7,
+                    }}
+                >
+                    {teamName}
+                </span>
             </div>
             {slot === null ? (
                 <div style={{ fontSize: 11, color: "#6b7280" }}>

@@ -99,7 +99,7 @@ function sessionPoints(r: RaceResult, sessionType: string): number {
 function getSurname(fullName?: string): string {
     if (!fullName) return "";
     const parts = fullName.trim().split(" ");
-    return parts[parts.length - 1] || fullName;
+    return (parts[parts.length - 1] || fullName).toUpperCase();
 }
 
 // ── Data fetching reducer ─────────────────────────────────────────────────────

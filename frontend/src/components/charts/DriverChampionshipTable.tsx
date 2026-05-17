@@ -47,7 +47,7 @@ function getDriverLabel(
 function getSurname(label: string | null): string | null {
     if (!label) return null;
     const parts = label.trim().split(" ");
-    return parts[parts.length - 1] || null;
+    return parts[parts.length - 1]?.toUpperCase() || null;
 }
 
 export default function DriverChampionshipTable({
@@ -109,7 +109,7 @@ export default function DriverChampionshipTable({
             .map((d) => ({
                 driverNumber: d.driver_number,
                 surname:
-                    d.full_name?.split(" ").slice(-1)[0] ??
+                    d.full_name?.split(" ").slice(-1)[0]?.toUpperCase() ??
                     d.name_acronym ??
                     null,
                 teamName: (d as any).team_name ?? "",

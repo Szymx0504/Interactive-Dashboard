@@ -15,8 +15,10 @@ export default function Navbar() {
         const carried = new URLSearchParams();
         const year = searchParams.get("year");
         const session = searchParams.get("session");
+        const circuit = searchParams.get("circuit");
         if (year) carried.set("year", year);
         if (session) carried.set("session", session);
+        if (circuit) carried.set("circuit", circuit);
         const qs = carried.toString();
         return qs ? `${basePath}?${qs}` : basePath;
     };

@@ -53,12 +53,16 @@ export default function QualifyingAnalysis() {
     const year = Number(searchParams.get("year")) || AVAILABLE_YEARS[0];
     const setYear = useCallback(
         (y: number) => {
-            setSearchParams((prev) => {
-                const next = new URLSearchParams(prev);
-                next.set("year", String(y));
-                next.delete("session");
-                return next;
-            }, { replace: true });
+            setSearchParams(
+                (prev) => {
+                    const next = new URLSearchParams(prev);
+                    next.set("year", String(y));
+                    next.delete("session");
+                    next.delete("circuit");
+                    return next;
+                },
+                { replace: true },
+            );
         },
         [setSearchParams],
     );
@@ -122,15 +126,28 @@ export default function QualifyingAnalysis() {
         );
     }, [qualSessions]);
 
-    // Auto-select the most recent past race weekend
+    // Auto-select: prefer circuit from URL params (cross-page sync), fall back to latest past race
+    const circuitParam = searchParams.get("circuit");
     useEffect(() => {
         if (!raceGroups.length) return;
+        // Try to match the circuit carried from another page
+        if (circuitParam) {
+            const match = raceGroups.find(
+                (g) => g.session.circuit_short_name === circuitParam,
+            );
+            if (match) {
+                setSelectedRaceKey(match.raceKey);
+                setFocusDrivers([]);
+                return;
+            }
+        }
+        // Fall back to latest past race weekend
         const today = new Date().toISOString();
         const past = raceGroups.filter((g) => g.session.date_start <= today);
         const target = past.length ? past[past.length - 1] : raceGroups[0];
         setSelectedRaceKey(target.raceKey);
         setFocusDrivers([]);
-    }, [raceGroups]);
+    }, [raceGroups, circuitParam]);
 
     const currentRaceGroup =
         raceGroups.find((g) => g.raceKey === selectedRaceKey) ?? null;
@@ -305,8 +322,27 @@ export default function QualifyingAnalysis() {
                 <select
                     value={selectedRaceKey ?? ""}
                     onChange={(e) => {
-                        setSelectedRaceKey(e.target.value || null);
+                        const key = e.target.value || null;
+                        setSelectedRaceKey(key);
                         setFocusDrivers([]);
+                        // Sync circuit to URL for cross-page navigation
+                        const group = raceGroups.find((g) => g.raceKey === key);
+                        setSearchParams(
+                            (prev) => {
+                                const next = new URLSearchParams(prev);
+                                if (group) {
+                                    next.set(
+                                        "circuit",
+                                        group.session.circuit_short_name,
+                                    );
+                                } else {
+                                    next.delete("circuit");
+                                }
+                                next.delete("session");
+                                return next;
+                            },
+                            { replace: true },
+                        );
                     }}
                     className="bg-f1-card border border-f1-border rounded-lg px-3 py-2 text-sm min-w-[220px]"
                     disabled={!raceGroups.length}
@@ -395,8 +431,12 @@ export default function QualifyingAnalysis() {
                         // Detect teammates: same team_colour among focused drivers
                         const colorToNums = new Map<string, number[]>();
                         for (const num of focusDrivers) {
-                            const d = uniqueDrivers.find((dr) => dr.driver_number === num);
-                            const col = (d?.team_colour ?? "888888").toLowerCase();
+                            const d = uniqueDrivers.find(
+                                (dr) => dr.driver_number === num,
+                            );
+                            const col = (
+                                d?.team_colour ?? "888888"
+                            ).toLowerCase();
                             const arr = colorToNums.get(col) ?? [];
                             arr.push(num);
                             colorToNums.set(col, arr);
@@ -406,36 +446,60 @@ export default function QualifyingAnalysis() {
                         const pinstripeSet = new Set<number>();
                         colorToNums.forEach((nums) => {
                             if (nums.length > 1) {
-                                [...nums].sort((a, b) => b - a).slice(0, nums.length - 1).forEach((n) => pinstripeSet.add(n));
+                                [...nums]
+                                    .sort((a, b) => b - a)
+                                    .slice(0, nums.length - 1)
+                                    .forEach((n) => pinstripeSet.add(n));
                             }
                         });
                         return focusDrivers.map((num) => {
-                            const info = uniqueDrivers.find((d) => d.driver_number === num);
+                            const info = uniqueDrivers.find(
+                                (d) => d.driver_number === num,
+                            );
                             const baseColor = `#${info?.team_colour ?? "fff"}`;
                             const isStripe = pinstripeSet.has(num);
                             const displayColor = isStripe
                                 ? (() => {
-                                    // HSL-based variant: same hue, nudge lightness + saturation
-                                    const h = baseColor.replace("#", "");
-                                    const r = parseInt(h.slice(0, 2), 16) / 255;
-                                    const g = parseInt(h.slice(2, 4), 16) / 255;
-                                    const b = parseInt(h.slice(4, 6), 16) / 255;
-                                    const max = Math.max(r, g, b), min = Math.min(r, g, b);
-                                    const l = (max + min) / 2;
-                                    const d2 = max - min;
-                                    const s = max === min ? 0 : l > 0.5 ? d2 / (2 - max - min) : d2 / (max + min);
-                                    let hue = 0;
-                                    if (max !== min) {
-                                        if (max === r) hue = ((g - b) / d2 + (g < b ? 6 : 0)) / 6;
-                                        else if (max === g) hue = ((b - r) / d2 + 2) / 6;
-                                        else hue = ((r - g) / d2 + 4) / 6;
-                                    }
-                                    const lit = l * 100;
-                                    const isDark = lit < 45;
-                                    const newL = isDark ? Math.min(lit + 32, 92) : Math.max(lit - 28, 12);
-                                    const newS = Math.min(s * 100 + (isDark ? 18 : 15), 100);
-                                    return `hsl(${(hue * 360).toFixed(1)},${newS.toFixed(1)}%,${newL.toFixed(1)}%)`;
-                                })()
+                                      // HSL-based variant: same hue, nudge lightness + saturation
+                                      const h = baseColor.replace("#", "");
+                                      const r =
+                                          parseInt(h.slice(0, 2), 16) / 255;
+                                      const g =
+                                          parseInt(h.slice(2, 4), 16) / 255;
+                                      const b =
+                                          parseInt(h.slice(4, 6), 16) / 255;
+                                      const max = Math.max(r, g, b),
+                                          min = Math.min(r, g, b);
+                                      const l = (max + min) / 2;
+                                      const d2 = max - min;
+                                      const s =
+                                          max === min
+                                              ? 0
+                                              : l > 0.5
+                                                ? d2 / (2 - max - min)
+                                                : d2 / (max + min);
+                                      let hue = 0;
+                                      if (max !== min) {
+                                          if (max === r)
+                                              hue =
+                                                  ((g - b) / d2 +
+                                                      (g < b ? 6 : 0)) /
+                                                  6;
+                                          else if (max === g)
+                                              hue = ((b - r) / d2 + 2) / 6;
+                                          else hue = ((r - g) / d2 + 4) / 6;
+                                      }
+                                      const lit = l * 100;
+                                      const isDark = lit < 45;
+                                      const newL = isDark
+                                          ? Math.min(lit + 32, 92)
+                                          : Math.max(lit - 28, 12);
+                                      const newS = Math.min(
+                                          s * 100 + (isDark ? 18 : 15),
+                                          100,
+                                      );
+                                      return `hsl(${(hue * 360).toFixed(1)},${newS.toFixed(1)}%,${newL.toFixed(1)}%)`;
+                                  })()
                                 : baseColor;
                             return (
                                 <span

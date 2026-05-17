@@ -38,7 +38,13 @@ function Card({
 
 export default function SeasonOverview() {
     const selector = useRaceSelector("Race");
-    const { year, sessionKey: selectedSessionKey, setSessionKey: setSelectedSessionKey, sessions: raceSessions, sessionsLoading } = selector;
+    const {
+        year,
+        sessionKey: selectedSessionKey,
+        setSessionKey: setSelectedSessionKey,
+        sessions: raceSessions,
+        sessionsLoading,
+    } = selector;
 
     // Auto-select latest past race when sessions load and none is selected
     useEffect(() => {
@@ -46,7 +52,7 @@ export default function SeasonOverview() {
         const today = new Date().toISOString();
         const past = raceSessions.filter((s) => s.date_start <= today);
         const target = past.length ? past[past.length - 1] : raceSessions[0];
-        setSelectedSessionKey(target.session_key);
+        setSelectedSessionKey(target.session_key, target.circuit_short_name);
     }, [raceSessions, selectedSessionKey, setSelectedSessionKey]);
 
     const selectedSession = selector.selectedSession;
