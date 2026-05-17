@@ -501,11 +501,17 @@ export default function TrackMap({
       }
     }
 
+    // Current lap start time (used to check retirement timing)
+    const currentLapTime = currentLapData.length
+      ? new Date(currentLapData[0].date_start).getTime()
+      : 0;
+
     // Build
     const result: Standing[] = [];
     for (const drv of drivers) {
       const pos = driverPos.get(drv.driver_number) ?? 99;
-      const retired = retiredAt.has(drv.driver_number);
+      const retireTime = retiredAt.get(drv.driver_number);
+      const retired = retireTime != null && currentLapTime >= retireTime;
       const gap = driverGap.get(drv.driver_number);
       const intv = driverInt.get(drv.driver_number);
       const tyre = driverTyre.get(drv.driver_number);
