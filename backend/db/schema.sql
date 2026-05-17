@@ -135,6 +135,32 @@ CREATE TABLE IF NOT EXISTS track_map_cache (
     created_at      TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- 10. Weather samples (~20-60 per session)
+CREATE TABLE IF NOT EXISTS weather (
+    session_key        INTEGER NOT NULL,
+    date               TEXT NOT NULL,
+    air_temperature    DOUBLE PRECISION,
+    track_temperature  DOUBLE PRECISION,
+    humidity           DOUBLE PRECISION,
+    pressure           DOUBLE PRECISION,
+    rainfall           DOUBLE PRECISION,
+    wind_direction     INTEGER,
+    wind_speed         DOUBLE PRECISION,
+    PRIMARY KEY (session_key, date)
+);
+CREATE INDEX IF NOT EXISTS idx_weather_session ON weather (session_key);
+
+-- 11. Intervals / gaps (~1000-3000 per session)
+CREATE TABLE IF NOT EXISTS intervals (
+    session_key        INTEGER NOT NULL,
+    driver_number      INTEGER NOT NULL,
+    date               TEXT NOT NULL,
+    gap_to_leader      DOUBLE PRECISION,
+    interval           DOUBLE PRECISION,
+    PRIMARY KEY (session_key, driver_number, date)
+);
+CREATE INDEX IF NOT EXISTS idx_intervals_session ON intervals (session_key);
+
 -- Tracks which sessions have been fully seeded (for the seed script)
 CREATE TABLE IF NOT EXISTS seed_status (
     session_key     INTEGER NOT NULL,
