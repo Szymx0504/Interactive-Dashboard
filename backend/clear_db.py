@@ -15,7 +15,7 @@ async def main():
         await conn.execute('''
             DROP TABLE IF EXISTS sessions, drivers, session_results, 
             championship_drivers, championship_teams, laps, stints,
-            race_control, weather, intervals, track_map_cache, seed_status CASCADE
+            race_control, weather, intervals, positions, track_map_cache, seed_status CASCADE
         ''')
         print("Database cleared successfully (All tables dropped)!")
 
